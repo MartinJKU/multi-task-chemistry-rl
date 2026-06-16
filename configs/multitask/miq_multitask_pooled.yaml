@@ -50,30 +50,52 @@ tasks:
     properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
     num_samples: 1500
 
+  # Index tasks are restricted to smaller molecules with shorter answer lists so the
+  # 0.5B model gets achievable exact-match targets (mirrors miq_curriculum_02_simple_index).
   - task_id: si_ring
     task_type: single_index
     properties: [ring_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_aromatic_ring
     task_type: single_index
     properties: [aromatic_ring_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_carbon_atom
     task_type: single_index
     properties: [carbon_atom_index]
     num_samples: 1500
+    candidate_multiplier: 8
+    filters:
+      max_smiles_length: 70
+      max_answer_list_length: 18
 
   - task_id: si_hetero_atom
     task_type: single_index
     properties: [hetero_atom_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: mi_ring_aromatic
     task_type: multi_index
     properties: [ring_index, aromatic_ring_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: cg_ring_count
     task_type: constraint_generation
