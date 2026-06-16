@@ -34,6 +34,8 @@ class MolecularIQTaskSpec:
         seed: Optional per-task generation seed.
         system_prompt_style: MolecularIQ prompt style.
         constraint_operator: Operator used for constraint-generation tasks.
+        filters: Optional dataset filters applied after question generation.
+        candidate_multiplier: Extra generation factor used before filtered sampling.
     """
 
     task_id: str
@@ -44,6 +46,8 @@ class MolecularIQTaskSpec:
     seed: int | None = None
     system_prompt_style: str | None = None
     constraint_operator: str | None = None
+    filters: dict[str, Any] | None = None
+    candidate_multiplier: int = 1
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MolecularIQTaskSpec":
@@ -63,6 +67,8 @@ class MolecularIQTaskSpec:
             seed=data.get("seed"),
             system_prompt_style=data.get("system_prompt_style"),
             constraint_operator=data.get("constraint_operator"),
+            filters=data.get("filters"),
+            candidate_multiplier=int(data.get("candidate_multiplier", 1)),
         )
 
     def task_kwargs(self, default_seed: int | None = None) -> dict[str, Any]:
@@ -174,6 +180,88 @@ def _metadata_columns(spec: MolecularIQTaskSpec, n: int) -> dict[str, list[str]]
     }
 
 
+def _flatten_answer_values(value) -> list:
+    """Flatten nested JSON answer values for simple filter checks."""
+    if isinstance(value, dict):
+        out = []
+        for item in value.values():
+            out.extend(_flatten_answer_values(item))
+        return out
+    if isinstance(value, list):
+        out = [value]
+        for item in value:
+            out.extend(_flatten_answer_values(item))
+        return out
+    return [value]
+
+
+def _answer_passes_filters(answer: str, filters: dict[str, Any]) -> bool:
+    """Check JSON answer constraints used by curriculum datasets."""
+    try:
+        parsed = json.loads(answer)
+    except (TypeError, json.JSONDecodeError):
+        return False
+
+    values = _flatten_answer_values(parsed)
+    lists = [value for value in values if isinstance(value, list)]
+    numbers = [
+        float(value)
+        for value in values
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+
+    max_list_len = filters.get("max_answer_list_length")
+    if max_list_len is not None and any(len(items) > int(max_list_len) for items in lists):
+        return False
+
+    min_list_len = filters.get("min_answer_list_length")
+    if min_list_len is not None and lists and any(len(items) < int(min_list_len) for items in lists):
+        return False
+
+    if filters.get("require_nonempty_list") and lists and not any(lists):
+        return False
+
+    max_numeric = filters.get("max_answer_numeric_value")
+    if max_numeric is not None and any(abs(value) > float(max_numeric) for value in numbers):
+        return False
+
+    return True
+
+
+def _filter_task_dataset(ds: Dataset, spec: MolecularIQTaskSpec) -> Dataset:
+    """Apply optional curriculum filters to one generated task dataset."""
+    filters = spec.filters or {}
+    if not filters:
+        return ds
+
+    def _keep(row: dict) -> bool:
+        max_smiles_len = filters.get("max_smiles_length")
+        if max_smiles_len is not None:
+            smiles = row.get("smiles") or ""
+            if len(smiles) > int(max_smiles_len):
+                return False
+
+        max_question_len = filters.get("max_question_length")
+        if max_question_len is not None:
+            question = row.get("question") or ""
+            if len(question) > int(max_question_len):
+                return False
+
+        return _answer_passes_filters(row.get("answer", ""), filters)
+
+    before = len(ds)
+    filtered = ds.filter(_keep)
+    if len(filtered) == 0:
+        raise ValueError(
+            f"Filters for task {spec.task_id!r} removed all {before} rows: {filters}"
+        )
+    print(
+        f"[multitask] filtered {spec.task_id}: {before} -> {len(filtered)} rows "
+        f"using {filters}"
+    )
+    return filtered
+
+
 def build_task_dataset(
     spec: MolecularIQTaskSpec,
     split: str,
@@ -181,7 +269,11 @@ def build_task_dataset(
 ) -> Dataset:
     """Generate and annotate one MolecularIQ subtask dataset."""
     task = get_task("moleculariq", **spec.task_kwargs(default_seed=default_seed))
-    ds = task.to_grpo_dataset(split=split, num_samples=spec.num_samples)
+    generation_samples = spec.num_samples
+    if spec.filters and spec.num_samples is not None:
+        generation_samples = spec.num_samples * max(1, spec.candidate_multiplier)
+    ds = task.to_grpo_dataset(split=split, num_samples=generation_samples)
+    ds = _filter_task_dataset(ds, spec)
     for name, values in _metadata_columns(spec, len(ds)).items():
         if name in ds.column_names:
             ds = ds.remove_columns(name)
@@ -390,6 +482,8 @@ def build_and_save_multitask(
                 "properties": spec.properties,
                 "num_samples": spec.num_samples,
                 "sampling_weight": spec.sampling_weight,
+                "filters": spec.filters or {},
+                "candidate_multiplier": spec.candidate_multiplier,
             }
             for spec in cfg.tasks
         ],

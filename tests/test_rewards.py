@@ -4,6 +4,7 @@ from grpo_reasoning.rewards import (
     format_reward,
     make_exact_match_reward,
     make_moleculariq_shaped_reward,
+    moleculariq_diagnostics,
     soft_format_reward,
 )
 
@@ -147,3 +148,12 @@ def test_moleculariq_shaped_constraint_valid_smiles_if_rdkit_available():
         answer=['[{"property": "ring_count", "operator": "=", "value": 1}]'],
     )
     assert out == [1.5]
+
+
+def test_moleculariq_diagnostics_reports_partial_score():
+    """Verify diagnostic metrics expose parsing and partial score information."""
+    completion = '<reasoning>x</reasoning>\n<answer>{"ring_count": 8}</answer>'
+    out = moleculariq_diagnostics(completion, '{"ring_count": 10}', "single_count")
+    assert out["answer_present"] is True
+    assert out["json_valid"] is True
+    assert 0.8 < out["partial_score"] < 0.9

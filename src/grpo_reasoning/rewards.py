@@ -456,3 +456,33 @@ def make_moleculariq_shaped_reward(
 
     shaped_reward.__name__ = "moleculariq_shaped_reward"
     return shaped_reward
+
+
+def moleculariq_diagnostics(
+    completion_text: str,
+    gold_answer: str,
+    task_type: str,
+) -> dict[str, float | bool]:
+    """Compute diagnostic partial metrics for one MolecularIQ completion.
+
+    Args:
+        completion_text: Full assistant completion text.
+        gold_answer: JSON-encoded target answer.
+        task_type: MolecularIQ task type for this example.
+
+    Returns:
+        Dictionary with answer parsing, partial score, and SMILES validity flags.
+    """
+    extracted = extract_xml_answer(completion_text)
+    parsed = _parse_json(extracted) if extracted else None
+    partial_score, valid_smiles = _moleculariq_shaped_score(
+        completion_text,
+        gold_answer,
+        task_type,
+    )
+    return {
+        "answer_present": bool(extracted),
+        "json_valid": parsed is not None,
+        "partial_score": float(partial_score),
+        "valid_smiles": bool(valid_smiles),
+    }

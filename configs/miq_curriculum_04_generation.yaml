@@ -1,0 +1,36 @@
+out_dir: data/miq_curriculum_04_generation_train
+strategy: pooled
+split: train
+seed: 45
+shuffle: true
+
+tasks:
+  - task_id: sc_ring_count_replay
+    task_type: single_count
+    properties: [ring_count]
+    num_samples: 500
+
+  - task_id: mc_composition_replay
+    task_type: multi_count
+    properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+    num_samples: 500
+
+  - task_id: si_ring_replay
+    task_type: single_index
+    properties: [ring_index]
+    num_samples: 500
+
+  - task_id: mi_ring_aromatic_replay
+    task_type: multi_index
+    properties: [ring_index, aromatic_ring_index]
+    num_samples: 500
+
+  - task_id: cg_ring_count
+    task_type: constraint_generation
+    properties: [ring_count]
+    num_samples: 2000
+
+  - task_id: cg_carbon_atom
+    task_type: constraint_generation
+    properties: [carbon_atom_count]
+    num_samples: 2000

@@ -1,0 +1,52 @@
+out_dir: data/miq_curriculum_01_counts_train
+strategy: balanced
+split: train
+seed: 42
+shuffle: true
+samples_per_task: 1500
+
+tasks:
+  - task_id: sc_ring_count
+    task_type: single_count
+    properties: [ring_count]
+    num_samples: 1500
+
+  - task_id: sc_aromatic_ring
+    task_type: single_count
+    properties: [aromatic_ring_count]
+    num_samples: 1500
+
+  - task_id: sc_fused_ring
+    task_type: single_count
+    properties: [fused_ring_count]
+    num_samples: 1500
+
+  - task_id: sc_carbon_atom
+    task_type: single_count
+    properties: [carbon_atom_count]
+    num_samples: 1500
+
+  - task_id: sc_hetero_atom
+    task_type: single_count
+    properties: [hetero_atom_count]
+    num_samples: 1500
+
+  - task_id: sc_hba
+    task_type: single_count
+    properties: [hba_count]
+    num_samples: 1500
+
+  - task_id: sc_rotatable_bond
+    task_type: single_count
+    properties: [rotatable_bond_count]
+    num_samples: 1500
+
+  - task_id: mc_topology
+    task_type: multi_count
+    properties: [ring_count, aromatic_ring_count, fused_ring_count]
+    num_samples: 1500
+
+  - task_id: mc_composition
+    task_type: multi_count
+    properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+    num_samples: 1500

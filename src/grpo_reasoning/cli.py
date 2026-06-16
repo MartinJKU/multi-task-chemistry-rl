@@ -111,6 +111,49 @@ def preprocess_multitask_main() -> None:
     print(f"Saved multitask dataset to {out}")
 
 
+def audit_moleculariq_main() -> None:
+    """Audit MolecularIQ source-pool coverage for configured task specs."""
+    p = argparse.ArgumentParser()
+    p.add_argument(
+        "--config",
+        default="configs/miq_experiment_suite.yaml",
+        help="YAML file with a `tasks` list to audit.",
+    )
+    p.add_argument(
+        "--out-dir",
+        default="outputs/moleculariq_dataset_audit",
+        help="Directory where JSON/CSV audit files are written.",
+    )
+    p.add_argument("--split", default="train")
+    p.add_argument("--repo", default="ml-jku/moleculariq-trainPool")
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--max-raw-rows",
+        type=int,
+        default=None,
+        help="Optional cap for a quick smoke test before scanning the full pool.",
+    )
+    p.add_argument(
+        "--progress-every",
+        type=int,
+        default=5000,
+        help="Print per-task progress every N raw rows; use 0 to disable.",
+    )
+    args = p.parse_args()
+
+    from .dataset_audit import audit_moleculariq_dataset
+
+    audit_moleculariq_dataset(
+        config_path=args.config,
+        out_dir=args.out_dir,
+        split=args.split,
+        repo=args.repo,
+        seed=args.seed,
+        max_raw_rows=args.max_raw_rows,
+        progress_every=args.progress_every,
+    )
+
+
 def train_main() -> None:
     """Run the GRPO training command.
 
@@ -160,6 +203,44 @@ def train_main() -> None:
         cfg_dict["save_on_interrupt"] = False
 
     train(TrainArgs(**cfg_dict))
+
+
+def curriculum_main() -> None:
+    """Run staged curriculum training from a YAML config."""
+    p = argparse.ArgumentParser()
+    p.add_argument("--config", required=True)
+    p.add_argument(
+        "--overwrite-datasets",
+        action="store_true",
+        help="Rebuild stage datasets even if they already exist.",
+    )
+    p.add_argument(
+        "--start-stage",
+        default=None,
+        help="Start from this stage name instead of the first stage.",
+    )
+    p.add_argument(
+        "--dataset-only",
+        action="store_true",
+        help="Only build curriculum datasets; do not train.",
+    )
+    p.add_argument(
+        "--max-steps-per-stage",
+        type=int,
+        default=None,
+        help="Override max_steps for every stage, useful for smoke tests.",
+    )
+    args = p.parse_args()
+
+    from .curriculum import run_curriculum_from_file
+
+    run_curriculum_from_file(
+        args.config,
+        overwrite_datasets=args.overwrite_datasets,
+        start_stage=args.start_stage,
+        dataset_only=args.dataset_only,
+        max_steps_per_stage=args.max_steps_per_stage,
+    )
 
 
 def evaluate_main() -> None:
@@ -310,16 +391,23 @@ def evaluate_multitask_main() -> None:
             save_path=out_dir / f"{spec.task_id}_eval.json",
             task_kwargs=spec.task_kwargs(default_seed=cfg.seed),
         )
-        task_results.append(
-            {
-                "task_id": spec.task_id,
-                "task_type": spec.task_type,
-                "properties": list(spec.properties),
-                "accuracy": metrics["accuracy"],
-                "correct": metrics["correct"],
-                "total": metrics["total"],
-            }
-        )
+        task_row = {
+            "task_id": spec.task_id,
+            "task_type": spec.task_type,
+            "properties": list(spec.properties),
+            "accuracy": metrics["accuracy"],
+            "correct": metrics["correct"],
+            "total": metrics["total"],
+        }
+        for key in (
+            "partial_score_mean",
+            "answer_present_rate",
+            "json_valid_rate",
+            "valid_smiles_rate",
+        ):
+            if key in metrics:
+                task_row[key] = metrics[key]
+        task_results.append(task_row)
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -333,6 +421,13 @@ def evaluate_multitask_main() -> None:
         "worst_task_accuracy": min(accuracies) if accuracies else 0.0,
         "tasks": task_results,
     }
+    partial_scores = [
+        row["partial_score_mean"]
+        for row in task_results
+        if "partial_score_mean" in row
+    ]
+    if partial_scores:
+        summary["macro_partial_score"] = sum(partial_scores) / len(partial_scores)
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\n[multitask-eval] wrote {summary_path}")
@@ -364,3 +459,47 @@ def plot_training_main() -> None:
     from .plotting import plot_training_curves
 
     plot_training_curves(args.output_dir, save_dir=args.save_dir)
+
+
+def report_main() -> None:
+    """Create experiment comparison plots from outputs and eval summaries."""
+    p = argparse.ArgumentParser()
+    p.add_argument(
+        "--outputs-dir",
+        default="outputs",
+        help="Root directory containing trainer outputs and multitask_eval.",
+    )
+    p.add_argument(
+        "--eval-dir",
+        default=None,
+        help="Directory containing multitask eval subfolders (default: <outputs-dir>/multitask_eval).",
+    )
+    p.add_argument(
+        "--out-dir",
+        default=None,
+        help="Where to write report artifacts (default: <outputs-dir>/report).",
+    )
+    args = p.parse_args()
+
+    try:
+        from .reporting import create_experiment_report
+    except ModuleNotFoundError as exc:
+        if exc.name == "matplotlib":
+            raise SystemExit(
+                "matplotlib is required for report plotting. Install project "
+                "dependencies with `pip install -r requirements.txt`."
+            ) from exc
+        raise
+
+    artifacts = create_experiment_report(
+        outputs_dir=args.outputs_dir,
+        eval_dir=args.eval_dir,
+        out_dir=args.out_dir,
+    )
+    print("\n[report] generated:")
+    for group, paths in artifacts.items():
+        if not paths:
+            continue
+        print(f"  {group}:")
+        for path in paths:
+            print(f"    {path}")

@@ -11,6 +11,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
 from .prompts import extract_xml_answer
+from .rewards import moleculariq_diagnostics
 from .tasks import get_task
 from .utils import load_tokenizer
 
@@ -59,6 +60,8 @@ def evaluate(
 
     results: list[dict] = []
     correct = 0
+    diagnostic_rows: list[dict[str, float | bool]] = []
+    eval_task_type = getattr(task, "task_type", None)
 
     for start in tqdm(range(0, len(ds), batch_size), desc="eval"):
         batch = ds[start : start + batch_size]
@@ -92,15 +95,18 @@ def evaluate(
             extracted = extract_xml_answer(resp)
             is_correct = bool(task.score_prediction(resp, g))
             correct += int(is_correct)
-            results.append(
-                {
-                    "question": q,
-                    "gold": g,
-                    "extracted": extracted,
-                    "response": resp,
-                    "correct": is_correct,
-                }
-            )
+            row = {
+                "question": q,
+                "gold": g,
+                "extracted": extracted,
+                "response": resp,
+                "correct": is_correct,
+            }
+            if task_name == "moleculariq" and eval_task_type is not None:
+                diagnostics = moleculariq_diagnostics(resp, g, eval_task_type)
+                row["diagnostics"] = diagnostics
+                diagnostic_rows.append(diagnostics)
+            results.append(row)
 
     total = len(results)
     metrics = {
@@ -111,6 +117,25 @@ def evaluate(
         "task": task_name,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
     }
+    if diagnostic_rows:
+        metrics.update(
+            {
+                "partial_score_mean": sum(
+                    float(row["partial_score"]) for row in diagnostic_rows
+                )
+                / len(diagnostic_rows),
+                "answer_present_rate": sum(
+                    1 for row in diagnostic_rows if row["answer_present"]
+                )
+                / len(diagnostic_rows),
+                "json_valid_rate": sum(1 for row in diagnostic_rows if row["json_valid"])
+                / len(diagnostic_rows),
+                "valid_smiles_rate": sum(
+                    1 for row in diagnostic_rows if row["valid_smiles"]
+                )
+                / len(diagnostic_rows),
+            }
+        )
 
     if save_path is not None:
         save_path = Path(save_path)

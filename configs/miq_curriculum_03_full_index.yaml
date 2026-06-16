@@ -1,0 +1,41 @@
+out_dir: data/miq_curriculum_03_full_index_train
+strategy: pooled
+split: train
+seed: 44
+shuffle: true
+
+tasks:
+  - task_id: sc_ring_count_replay
+    task_type: single_count
+    properties: [ring_count]
+    num_samples: 500
+
+  - task_id: mc_topology_replay
+    task_type: multi_count
+    properties: [ring_count, aromatic_ring_count, fused_ring_count]
+    num_samples: 500
+
+  - task_id: si_ring
+    task_type: single_index
+    properties: [ring_index]
+    num_samples: 1500
+
+  - task_id: si_aromatic_ring
+    task_type: single_index
+    properties: [aromatic_ring_index]
+    num_samples: 1500
+
+  - task_id: si_carbon_atom
+    task_type: single_index
+    properties: [carbon_atom_index]
+    num_samples: 1500
+
+  - task_id: si_hetero_atom
+    task_type: single_index
+    properties: [hetero_atom_index]
+    num_samples: 1500
+
+  - task_id: mi_ring_aromatic
+    task_type: multi_index
+    properties: [ring_index, aromatic_ring_index]
+    num_samples: 1500

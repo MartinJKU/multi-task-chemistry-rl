@@ -57,8 +57,9 @@ fails on Windows, switch `optim: adamw_torch` in the YAML.
 
 After installation, the workflows are available either through the script
 wrappers shown below or through console commands: `grpo-preprocess`,
-`grpo-preprocess-multitask`, `grpo-train`, `grpo-plot-training`,
-`grpo-evaluate`, and `grpo-evaluate-multitask`.
+`grpo-preprocess-multitask`, `grpo-audit-moleculariq`, `grpo-train`,
+`grpo-plot-training`, `grpo-report`, `grpo-evaluate`,
+`grpo-evaluate-multitask`, and `grpo-curriculum`.
 
 If you OOM, reduce `max_completion_length` first, then `num_generations`, then
 `per_device_train_batch_size`.
@@ -105,6 +106,22 @@ There is also a static specialist training YAML for every task, named
 `configs/miq_<task_id>.yaml`. The automated specialist comparison script can
 regenerate those YAMLs from `configs/moleculariq_qwen05b.yaml`, but the static
 files make manual runs and future distillation work easier to inspect.
+
+To inspect how many full-pool examples each configured task can generate:
+
+```powershell
+# Quick smoke test on only the first 1000 raw rows
+python scripts/inspect_moleculariq_dataset.py --max-raw-rows 1000
+
+# Full MolecularIQ trainPool audit for the current 16-task suite
+python scripts/inspect_moleculariq_dataset.py
+```
+
+The audit writes `summary.json`, `task_counts.csv`, `task_type_counts.csv`,
+`property_counts.csv`, and `property_stats.csv` to
+`outputs/moleculariq_dataset_audit`. This helps check whether pooled and
+balanced training are genuinely different, or whether per-task sample caps make
+them effectively equal.
 
 | `--task-type`            | What the model must return inside `<answer>` |
 |--------------------------|----------------------------------------------|
@@ -206,6 +223,95 @@ python scripts/evaluate_multitask.py --config configs/miq_multitask_adaptive.yam
 `scripts/evaluate_multitask.py` writes per-task JSON files plus a `summary.json`
 with macro accuracy and worst-task accuracy. That summary is the handoff point
 for adaptive sampling and for later comparison scripts.
+
+Create a visual report across all discovered train/eval outputs:
+
+```powershell
+python scripts/plot_experiment_report.py --outputs-dir outputs
+```
+
+By default this reads trainer logs from `outputs/*/trainer_state.json` or the
+latest checkpoint under each output folder, reads model summaries from
+`outputs/multitask_eval/*/summary.json`, and writes plots plus CSV tables to
+`outputs/report`. The useful files are:
+
+- `overall_metrics.png`: macro, worst-task, and partial-score comparison.
+- `per_task_accuracy_heatmap.png`: which model wins or fails on each subtask.
+- `task_type_accuracy.png`: average accuracy by task family.
+- `training_loss.png`, `training_reward.png`, `training_kl.png`: overlaid train
+  curves across runs.
+- `eval_overall.csv`, `eval_by_task.csv`, `training_final_metrics.csv`: tables
+  for thesis notes or spreadsheet analysis.
+
+New evaluation files also include diagnostic partial metrics:
+
+- `partial_score_mean`: shaped partial score before exact-match thresholding.
+- `answer_present_rate`: fraction of completions with `<answer>...</answer>`.
+- `json_valid_rate`: fraction of extracted answers that parse as JSON.
+- `valid_smiles_rate`: fraction with parseable generated SMILES, mainly useful
+  for `constraint_generation`.
+
+## Curriculum training
+
+Curriculum follows the same preprocess/train/eval pattern as the other
+approaches, but each stage has its own dataset and train config. Later train
+configs set `model_name` to the previous stage output directory.
+
+Stage 1: count foundations
+
+```powershell
+python scripts/preprocess_multitask.py --config configs/miq_curriculum_01_counts.yaml
+python scripts/train.py --config configs/miq_curriculum_01_counts_train.yaml
+```
+
+Stage 2: simple index tasks with count replay
+
+```powershell
+python scripts/preprocess_multitask.py --config configs/miq_curriculum_02_simple_index.yaml
+python scripts/train.py --config configs/miq_curriculum_02_simple_index_train.yaml
+```
+
+Stage 3: full index tasks with replay
+
+```powershell
+python scripts/preprocess_multitask.py --config configs/miq_curriculum_03_full_index.yaml
+python scripts/train.py --config configs/miq_curriculum_03_full_index_train.yaml
+```
+
+Stage 4: constraint generation with replay
+
+```powershell
+python scripts/preprocess_multitask.py --config configs/miq_curriculum_04_generation.yaml
+python scripts/train.py --config configs/miq_curriculum_04_generation_train.yaml
+```
+
+Evaluate the final curriculum model against the full suite:
+
+```powershell
+python scripts/evaluate_multitask.py --config configs/miq_multitask_balanced.yaml `
+    --model outputs/miq-curriculum-04-generation --model-label curriculum
+```
+
+For a quick smoke test, run each stage with a temporary output directory and a
+small step cap, for example:
+
+```powershell
+python scripts/train.py --config configs/miq_curriculum_01_counts_train.yaml `
+    --max-steps 50 --output-dir outputs/miq-curriculum-01-smoke
+```
+
+The default curriculum stages are:
+
+| Stage | Focus |
+|-------|-------|
+| `01_counts` | Single-count and multi-count foundations. |
+| `02_simple_index` | Shorter SMILES and shorter index lists, plus count replay. |
+| `03_full_index` | Full index tasks and multi-index with count replay. |
+| `04_generation` | Constraint generation with count/index replay. |
+
+`scripts/run_curriculum.py --config configs/miq_curriculum.yaml` is still
+available as a convenience wrapper that runs all stages in order, but the
+explicit configs above are the recommended experiment interface.
 
 ## Scaling up later
 

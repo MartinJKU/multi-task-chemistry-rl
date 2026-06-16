@@ -1,0 +1,52 @@
+out_dir: data/miq_curriculum_02_simple_index_train
+strategy: pooled
+split: train
+seed: 43
+shuffle: true
+
+tasks:
+  - task_id: sc_ring_count_replay
+    task_type: single_count
+    properties: [ring_count]
+    num_samples: 500
+
+  - task_id: sc_carbon_atom_replay
+    task_type: single_count
+    properties: [carbon_atom_count]
+    num_samples: 500
+
+  - task_id: si_ring
+    task_type: single_index
+    properties: [ring_index]
+    num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
+  - task_id: si_aromatic_ring
+    task_type: single_index
+    properties: [aromatic_ring_index]
+    num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
+  - task_id: si_carbon_atom
+    task_type: single_index
+    properties: [carbon_atom_index]
+    num_samples: 1500
+    candidate_multiplier: 8
+    filters:
+      max_smiles_length: 70
+      max_answer_list_length: 18
+
+  - task_id: si_hetero_atom
+    task_type: single_index
+    properties: [hetero_atom_index]
+    num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
