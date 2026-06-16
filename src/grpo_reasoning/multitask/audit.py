@@ -9,9 +9,9 @@ from typing import Any
 
 from datasets import load_dataset
 
-from .multitask import MolecularIQTaskSpec
-from .tasks import get_task
-from .utils import load_yaml
+from ..common.tasks import get_task
+from ..common.utils import load_yaml
+from .dataset import MolecularIQTaskSpec
 
 
 @dataclass
@@ -91,7 +91,7 @@ class TaskAudit:
 
 
 def audit_moleculariq_dataset(
-    config_path: Path | str = "configs/miq_experiment_suite.yaml",
+    config_path: Path | str = "configs/multitask/miq_experiment_suite.yaml",
     out_dir: Path | str = "outputs/moleculariq_dataset_audit",
     split: str = "train",
     repo: str = "ml-jku/moleculariq-trainPool",

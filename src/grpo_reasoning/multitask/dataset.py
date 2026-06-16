@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 from datasets import Dataset, concatenate_datasets
 
-from .tasks import get_task
+from ..common.tasks import get_task
 
 _VALID_STRATEGIES = {"pooled", "balanced", "adaptive"}
 

@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .multitask import MultitaskDatasetConfig, build_and_save_multitask
-from .train import TrainArgs, train
-from .utils import load_yaml
+from ..common.train import TrainArgs, train
+from ..common.utils import load_yaml
+from .dataset import MultitaskDatasetConfig, build_and_save_multitask
 
 
 @dataclass

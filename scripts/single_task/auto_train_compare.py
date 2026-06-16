@@ -17,16 +17,16 @@ Output files
 Usage
 -----
     # Full run (each experiment ~30-60 min on a consumer GPU):
-    python scripts/auto_train_compare.py
+    python scripts/single_task/auto_train_compare.py
 
     # Quick smoke-test (50 train steps, 100 eval samples):
-    python scripts/auto_train_compare.py --max-steps 50 --num-eval 100 --num-train 500
+    python scripts/single_task/auto_train_compare.py --max-steps 50 --num-eval 100 --num-train 500
 
     # Regenerate report from already-completed eval JSONs (no training):
-    python scripts/auto_train_compare.py --report-only
+    python scripts/single_task/auto_train_compare.py --report-only
 
     # Run only specific experiments by name:
-    python scripts/auto_train_compare.py --experiments sc_ring_count cg_ring_count
+    python scripts/single_task/auto_train_compare.py --experiments sc_ring_count cg_ring_count
 
 Available experiment names (defined in EXPERIMENTS below):
     sc_ring_count      single_count   x ring_count
@@ -62,10 +62,11 @@ matplotlib.use("Agg")  # write PNG without needing a display/GUI
 import matplotlib.pyplot as plt
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPTS_DIR = _REPO_ROOT / "scripts"
+_SINGLE_TASK_SCRIPTS = _SCRIPTS_DIR / "single_task"
 _PYTHON = sys.executable
-_BASE_CONFIG = _REPO_ROOT / "configs" / "moleculariq_qwen05b.yaml"
+_BASE_CONFIG = _REPO_ROOT / "configs" / "single_task" / "moleculariq_qwen05b.yaml"
 _BASELINE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 
@@ -105,7 +106,7 @@ class Experiment:
             None.
         """
         self.data_dir    = _REPO_ROOT / "data"    / f"miq_{self.name}_train"
-        self.config_path = _REPO_ROOT / "configs" / f"miq_{self.name}.yaml"
+        self.config_path = _REPO_ROOT / "configs" / "single_task" / f"miq_{self.name}.yaml"
         self.output_dir  = _REPO_ROOT / "outputs" / f"miq-{self.name}-grpo"
         self.eval_dir    = _REPO_ROOT / "outputs" / "comparison" / self.name
 
@@ -294,7 +295,7 @@ def step_preprocess(exp: Experiment, num_train: int) -> None:
         return
     _run(
         [
-            _PYTHON, _SCRIPTS_DIR / "preprocess.py",
+            _PYTHON, _SINGLE_TASK_SCRIPTS / "preprocess.py",
             "--task",        "moleculariq",
             "--split",       "train",
             "--task-type",   exp.task_type,
@@ -348,6 +349,7 @@ def step_train(exp: Experiment) -> None:
         [_PYTHON, _SCRIPTS_DIR / "train.py", "--config", exp.config_path],
         f"Train [{exp.name}]  task_type={exp.task_type}  properties={exp.properties}",
     )
+    # Note: train.py is the shared entry point at scripts/train.py.
 
 
 def step_evaluate(exp: Experiment, num_eval: int) -> dict:
@@ -367,7 +369,7 @@ def step_evaluate(exp: Experiment, num_eval: int) -> dict:
     else:
         _run(
             [
-                _PYTHON, _SCRIPTS_DIR / "evaluate.py",
+                _PYTHON, _SINGLE_TASK_SCRIPTS / "evaluate.py",
                 "--task",        "moleculariq",
                 "--task-type",   exp.task_type,
                 "--properties",  *exp.properties,

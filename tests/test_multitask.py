@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from grpo_reasoning.multitask import (
+from grpo_reasoning.multitask.dataset import (
     MolecularIQTaskSpec,
     MultitaskDatasetConfig,
     _largest_remainder_counts,

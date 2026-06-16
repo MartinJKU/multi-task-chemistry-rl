@@ -1,19 +1,19 @@
 """Audit MolecularIQ source-pool coverage for the configured task suite.
 
 Usage:
-    python scripts/inspect_moleculariq_dataset.py --config configs/miq_experiment_suite.yaml
+    python scripts/multitask/inspect_moleculariq_dataset.py --config configs/multitask/miq_experiment_suite.yaml
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from grpo_reasoning.cli import audit_moleculariq_main
+from grpo_reasoning.multitask.cli import audit_moleculariq_main
 
 
 if __name__ == "__main__":

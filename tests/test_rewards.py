@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from grpo_reasoning.rewards import (
+from grpo_reasoning.common.rewards import (
     format_reward,
     make_exact_match_reward,
     make_moleculariq_shaped_reward,

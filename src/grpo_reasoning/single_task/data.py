@@ -4,7 +4,7 @@ from pathlib import Path
 
 from datasets import Dataset
 
-from .tasks import get_task
+from ..common.tasks import get_task
 
 
 def build_and_save(

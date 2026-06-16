@@ -28,17 +28,17 @@ Output files
 Usage
 -----
     # Full matrix (reuses cached cells; baseline + specialists over the task suite):
-    python scripts/cross_generalization.py
+    python scripts/single_task/cross_generalization.py
 
     # Quick smoke test:
-    python scripts/cross_generalization.py --num-samples 50
+    python scripts/single_task/cross_generalization.py --num-samples 50
 
     # Only some models / tasks:
-    python scripts/cross_generalization.py --models sc_ring_count cg_ring_count
-    python scripts/cross_generalization.py --tasks sc_ring_count si_ring
+    python scripts/single_task/cross_generalization.py --models sc_ring_count cg_ring_count
+    python scripts/single_task/cross_generalization.py --tasks sc_ring_count si_ring
 
     # Regenerate the plots/JSON from already-cached eval files:
-    python scripts/cross_generalization.py --report-only
+    python scripts/single_task/cross_generalization.py --report-only
 
 The model and task names are the experiment names defined in
 auto_train_compare.py.
@@ -56,9 +56,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
-from grpo_reasoning.eval import evaluate  # noqa: E402
+from grpo_reasoning.common.eval import evaluate  # noqa: E402
 
 # Reuse the exact experiment / task definitions used for training so the
 # task_type + properties always match what each model was trained on.
