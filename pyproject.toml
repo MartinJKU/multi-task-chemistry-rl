@@ -17,7 +17,9 @@ dependencies = [
     # Pin to the 0.16.x line the code targets. trl >=0.17 imports FSDPModule
     # (FSDP2) from torch, which breaks on torch builds that predate that API.
     "trl>=0.16,<0.17",
-    "datasets>=3.0",
+    # The moleculariq-trainPool pool uses the `List` feature type, added in
+    # datasets 4.0.0; older 3.x cannot parse it (TypeError in DatasetInfo).
+    "datasets>=4.0",
     "accelerate>=1.0",
     "peft>=0.10",
     "numpy>=1.26,<2.0",
