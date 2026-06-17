@@ -7,7 +7,7 @@
 #   sbatch slurm/curriculum.slurm
 # =============================================================================
 #SBATCH --job-name=miq-curriculum
-#SBATCH --account=YOUR_ACCOUNT          # <-- set this (list budgets with: saldo -b)
+#SBATCH --account=EUHPC_D27_069        # list budgets with: saldo -b
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=normal                    # boost_qos_dbg for a <=30 min smoke test
 #SBATCH --nodes=1

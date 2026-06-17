@@ -9,7 +9,7 @@
 #   sbatch slurm/strategies.slurm
 # =============================================================================
 #SBATCH --job-name=miq-strategies
-#SBATCH --account=YOUR_ACCOUNT          # <-- set this (list budgets with: saldo -b)
+#SBATCH --account=EUHPC_D27_069        # list budgets with: saldo -b
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=normal
 #SBATCH --nodes=1
