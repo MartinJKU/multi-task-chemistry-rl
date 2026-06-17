@@ -10,7 +10,10 @@ requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
 dependencies = [
-    "transformers>=4.47,<5.0",
+    # Cap below 4.50: transformers 4.50 changed Trainer to call
+    # _get_train_sampler(dataset), which trl 0.16's GRPOTrainer override
+    # does not accept (TypeError on the train dataloader).
+    "transformers>=4.47,<4.50",
     # Pin to the 0.16.x line the code targets. trl >=0.17 imports FSDPModule
     # (FSDP2) from torch, which breaks on torch builds that predate that API.
     "trl>=0.16,<0.17",
