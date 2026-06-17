@@ -101,7 +101,13 @@ def run_curriculum(
     for index, stage in enumerate(stages):
         print(f"\n[curriculum] stage {index + 1}/{len(stages)}: {stage.name}")
         ds_cfg = MultitaskDatasetConfig.from_dict(stage.dataset)
-        dataset_path = build_and_save_multitask(ds_cfg, overwrite=rebuild)
+        out_dir = Path(ds_cfg.out_dir)
+        if out_dir.exists() and not rebuild:
+            # Datasets were pre-built (e.g. on a login node); reuse them.
+            print(f"[curriculum] reusing existing dataset at {out_dir}")
+            dataset_path: Path | str = out_dir
+        else:
+            dataset_path = build_and_save_multitask(ds_cfg, overwrite=rebuild)
 
         if dataset_only:
             continue
