@@ -125,6 +125,7 @@ def _build_training_args(cfg: TrainArgs) -> GRPOConfig:
         per_device_train_batch_size=cfg.per_device_train_batch_size,
         num_generations=cfg.num_generations,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        max_prompt_length=cfg.max_prompt_length,
         max_completion_length=cfg.max_completion_length,
         num_train_epochs=cfg.num_train_epochs,
         max_steps=cfg.max_steps,

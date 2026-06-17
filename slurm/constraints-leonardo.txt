@@ -1,0 +1,24 @@
+# Dependency constraints for Leonardo installs.
+#
+# Keep PyTorch installed separately from setup_leonardo.sh so the CUDA wheel
+# index can be selected explicitly for the cluster driver.
+#
+# TRL 0.16.x is the API line used by src/grpo_reasoning/common/train.py.
+# transformers 4.50 changed Trainer sampler internals in a way that breaks
+# TRL 0.16's GRPOTrainer override, so keep the pair together.
+transformers==4.49.0
+trl==0.16.1
+
+# Keep NumPy 1.x for broad binary-wheel compatibility with chemistry and
+# plotting dependencies on the RHEL 8 Leonardo environment.
+numpy==1.26.4
+
+# Stable companion packages for the pinned TRL/Transformers line.
+datasets==3.3.2
+accelerate==1.4.0
+peft==0.14.0
+bitsandbytes==0.45.3
+matplotlib==3.10.0
+pyyaml==6.0.2
+tqdm==4.67.1
+pytest==8.3.5

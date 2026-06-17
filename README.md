@@ -65,8 +65,8 @@ tests/                     Reward and multitask sanity tests
 ## Setup
 
 ```powershell
-# 1) Install PyTorch with CUDA matching your driver. Example: CUDA 12.1
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+# 1) Install PyTorch with CUDA matching your driver. Example: CUDA 12.6
+pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu126
 
 # 2) Install the project runtime, chemistry, optimizer, and test extras
 pip install -r requirements.txt
@@ -86,6 +86,18 @@ wrappers shown below or through console commands:
 
 If you OOM, reduce `max_completion_length` first, then `num_generations`, then
 `per_device_train_batch_size`.
+
+For Leonardo, prefer the dedicated setup script instead of the generic commands
+above:
+
+```bash
+bash slurm/setup_leonardo.sh
+```
+
+It creates a clean venv in `$WORK/venvs/grpo`, installs the constrained
+TRL/Transformers stack from `slurm/constraints-leonardo.txt`, installs PyTorch
+from the configured CUDA wheel index, runs `pip check`, and pre-caches the model
+and datasets for offline compute nodes.
 
 ## Pause and resume training
 

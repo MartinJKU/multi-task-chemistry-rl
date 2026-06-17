@@ -16,8 +16,29 @@ bash slurm/setup_leonardo.sh        # venv + deps + pre-download model & dataset
 
 `setup_leonardo.sh` puts the venv in `$WORK/venvs/grpo` and the HuggingFace
 cache in `$WORK/hf_cache` (not `$HOME` — quota). Override via `VENV_DIR`,
-`HF_HOME`, `PROJECT_ROOT`, `PYTHON_MODULE` env vars. Check the Python module name
+`HF_HOME`, `PIP_CACHE_DIR`, `PROJECT_ROOT`, `PYTHON_MODULE`,
+`PYTORCH_VERSION`, and `PYTORCH_INDEX_URL` env vars. Check the Python module name
 first with `module avail python`.
+
+By default the script removes an existing `$WORK/venvs/grpo` first
+(`CLEAN_VENV=1`) so the install is genuinely fresh, then installs:
+
+- PyTorch `2.7.0` from `https://download.pytorch.org/whl/cu126`
+- the pinned TRL/Transformers stack in `slurm/constraints-leonardo.txt`
+- `moleculariq-core`, `bitsandbytes`, and the project package
+
+If the compute-node NVIDIA driver is too old for the CUDA 12.6 wheel, rebuild
+with an older PyTorch wheel index, for example:
+
+```bash
+PYTORCH_VERSION=2.5.1 \
+PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121 \
+bash slurm/setup_leonardo.sh
+```
+
+The setup ends with `pip check` and prints the installed versions. On login
+nodes `torch.cuda.is_available()` may be false; the SLURM scripts assert CUDA
+availability on the actual GPU compute node before training starts.
 
 ## 2. Set your account
 
