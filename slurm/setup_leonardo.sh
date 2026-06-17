@@ -72,6 +72,7 @@ packages = [
     "transformers",
     "trl",
     "datasets",
+    "pyarrow",
     "accelerate",
     "peft",
     "bitsandbytes",

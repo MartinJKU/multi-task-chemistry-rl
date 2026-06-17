@@ -15,6 +15,10 @@ numpy==1.26.4
 
 # Stable companion packages for the pinned TRL/Transformers line.
 datasets==3.3.2
+# Keep Arrow on the generation of wheels that datasets 3.3.x was released
+# against. Newer pyarrow releases can break nested feature inference while
+# building the cached chat-prompt datasets on Leonardo.
+pyarrow==19.0.1
 accelerate==1.4.0
 peft==0.14.0
 bitsandbytes==0.45.3
