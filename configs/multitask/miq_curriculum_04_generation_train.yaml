@@ -24,7 +24,7 @@ logging_steps: 1
 save_steps: 500
 bf16: true
 gradient_checkpointing: true
-optim: adamw_8bit
+optim: adamw_torch
 
 use_soft_format_reward: true
 correctness_weight: 2.0

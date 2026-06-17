@@ -85,7 +85,7 @@ class TrainArgs:
     save_steps: int = 100
     bf16: bool = True
     gradient_checkpointing: bool = True
-    optim: str = "adamw_8bit"
+    optim: str = "adamw_torch"
 
     use_soft_format_reward: bool = False
     correctness_weight: float = 2.0

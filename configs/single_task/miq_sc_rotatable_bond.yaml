@@ -15,7 +15,7 @@ model_name: Qwen/Qwen2.5-0.5B-Instruct
 moleculariq_task_type: single_count
 num_generations: 4
 num_train_epochs: 1
-optim: adamw_8bit
+optim: adamw_torch
 output_dir: outputs/miq-sc_rotatable_bond-grpo
 per_device_train_batch_size: 4
 save_steps: 100
