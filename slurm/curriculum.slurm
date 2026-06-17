@@ -27,6 +27,7 @@ export HF_HOME="${HF_HOME:-$WORK/hf_cache}"
 PYTHON_MODULE="${PYTHON_MODULE:-python/3.11.6--gcc--8.5.0}"
 
 # Compute nodes have no internet -> force HuggingFace offline (cache is prefilled)
+export PYTHONUNBUFFERED=1          # stream logs live instead of block-buffering
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
