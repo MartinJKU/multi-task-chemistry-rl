@@ -39,5 +39,7 @@ cd "$PROJECT_ROOT"
 mkdir -p logs
 
 nvidia-smi
+# Fail fast if CUDA is not visible (otherwise training would silently run on CPU)
+python -c "import torch; assert torch.cuda.is_available(), 'CUDA NOT available!'; print(f'[gpu] cuda=True device={torch.cuda.get_device_name(0)}')"
 # Datasets prebuilt -> this only trains. For a smoke test add: --max-steps-per-stage 20
 grpo-curriculum --config configs/multitask/miq_curriculum.yaml

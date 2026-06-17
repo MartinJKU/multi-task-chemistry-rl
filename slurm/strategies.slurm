@@ -40,6 +40,8 @@ cd "$PROJECT_ROOT"
 mkdir -p logs
 
 nvidia-smi
+# Fail fast if CUDA is not visible (otherwise training would silently run on CPU)
+python -c "import torch; assert torch.cuda.is_available(), 'CUDA NOT available!'; print(f'[gpu] cuda=True device={torch.cuda.get_device_name(0)}')"
 
 # 1) Counts pretrain -> warm-start checkpoint the strategy configs point at.
 grpo-train --config configs/multitask/miq_curriculum_01_counts_train.yaml
