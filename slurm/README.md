@@ -43,6 +43,27 @@ sbatch slurm/curriculum.slurm
 sbatch slurm/strategies.slurm
 ```
 
+`curriculum.slurm` uses the **A100-tuned** base config
+(`configs/multitask/miq_multitask_a100_train.yaml`): bigger batch, more
+generations, and no gradient checkpointing, so generation runs many completions
+in parallel and actually uses the A100 (a small-batch 0.5B GRPO run is
+generation-latency-bound and otherwise no faster than a desktop GPU). Drop
+`per_device_train_batch_size` to 32 in that config if you hit OOM.
+
+### Optional: vLLM generation (experimental, biggest speedup)
+
+vLLM makes generation 5-20x faster but needs a newer torch/transformers/trl than
+the pinned base stack, so it lives in a **separate venv**:
+
+```bash
+bash slurm/setup_vllm.sh           # one-time, builds $WORK/venvs/grpo-vllm
+sbatch slurm/curriculum_vllm.slurm # single GPU, vLLM colocates with training
+```
+
+This is best-effort scaffolding — vLLM<->trl<->transformers versions move fast,
+so expect to pin a version or two on first run (paste any conflict and adjust).
+The non-vLLM A100 path above is the reliable default.
+
 Smoke test first (cheap, <=30 min, debug QoS): edit the job to
 `--qos=boost_qos_dbg`, `--time=00:30:00`, and append
 `--max-steps-per-stage 20` to the `grpo-curriculum` line.

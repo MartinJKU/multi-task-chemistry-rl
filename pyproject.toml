@@ -30,6 +30,9 @@ dependencies = [
 bnb = ["bitsandbytes>=0.43; platform_system != 'Darwin'"]
 chem = ["moleculariq-core @ git+https://github.com/ml-jku/moleculariq-core.git"]
 dev = ["pytest>=8.0"]
+# vLLM needs newer torch/transformers/trl than the pinned base stack, so it is
+# installed into a SEPARATE venv (slurm/setup_vllm.sh), not the main one.
+vllm = ["vllm>=0.6", "trl>=0.18"]
 
 [project.scripts]
 # Shared

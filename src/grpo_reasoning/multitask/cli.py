@@ -143,6 +143,11 @@ def curriculum_main() -> None:
         default=None,
         help="Override max_steps for every stage, useful for smoke tests.",
     )
+    p.add_argument(
+        "--base-train-config",
+        default=None,
+        help="Override the curriculum's base_train_config (e.g. an A100-tuned config).",
+    )
     args = p.parse_args()
 
     from .curriculum import run_curriculum_from_file
@@ -153,6 +158,7 @@ def curriculum_main() -> None:
         start_stage=args.start_stage,
         dataset_only=args.dataset_only,
         max_steps_per_stage=args.max_steps_per_stage,
+        base_train_config=args.base_train_config,
     )
 
 

@@ -73,6 +73,7 @@ def run_curriculum(
     start_stage: str | None = None,
     dataset_only: bool = False,
     max_steps_per_stage: int | None = None,
+    base_train_config: str | None = None,
 ) -> str | None:
     """Build datasets and train stages sequentially.
 
@@ -86,7 +87,7 @@ def run_curriculum(
     Returns:
         Final stage output directory, or None when `dataset_only` is true.
     """
-    base_train = load_yaml(cfg.base_train_config)
+    base_train = load_yaml(base_train_config or cfg.base_train_config)
     rebuild = cfg.overwrite_datasets if overwrite_datasets is None else overwrite_datasets
 
     stages = list(cfg.stages)
@@ -140,6 +141,7 @@ def run_curriculum_from_file(
     start_stage: str | None = None,
     dataset_only: bool = False,
     max_steps_per_stage: int | None = None,
+    base_train_config: str | None = None,
 ) -> str | None:
     """Load and run a curriculum YAML file."""
     cfg = CurriculumConfig.from_dict(load_yaml(path))
@@ -149,4 +151,5 @@ def run_curriculum_from_file(
         start_stage=start_stage,
         dataset_only=dataset_only,
         max_steps_per_stage=max_steps_per_stage,
+        base_train_config=base_train_config,
     )

@@ -1,0 +1,46 @@
+task_name: moleculariq
+# For the curriculum, the runner overrides model_name per stage; this value is the
+# default used when this config is run standalone (e.g. a strategy run).
+model_name: outputs/miq-curriculum-01-counts
+dataset_path: data/miq_multitask_balanced_train
+output_dir: outputs/miq-multitask-a100-grpo
+
+moleculariq_task_type: single_count
+
+learning_rate: 1.0e-5
+beta: 0.005
+
+# --- A100 (64 GB) throughput tuning ------------------------------------------
+# The 0.5B model + small batch made GRPO generation latency-bound, so a 3080 Ti
+# matched the A100. Decode many more completions in parallel to use the card:
+#   per_device_train_batch_size completions are generated together each step.
+# 64 completions -> ~4x the generation parallelism of the old 16. Drop to 32 if
+# you hit OOM; you can push to 96-128 on a 64 GB A100 if memory allows.
+num_generations: 8                  # also improves GRPO advantage estimates
+per_device_train_batch_size: 64     # must keep (bsz * grad_accum) divisible by num_generations
+gradient_accumulation_steps: 1
+gradient_checkpointing: false       # 64 GB is plenty for 0.5B -> skip recompute overhead
+# -----------------------------------------------------------------------------
+
+max_prompt_length: 384
+max_completion_length: 384
+num_train_epochs: 1
+max_steps: -1
+warmup_ratio: 0.1
+weight_decay: 0.1
+max_grad_norm: 0.1
+lr_scheduler_type: cosine
+
+seed: 42
+logging_steps: 1
+save_steps: 500
+bf16: true
+optim: adamw_8bit
+
+use_soft_format_reward: true
+correctness_weight: 2.0
+use_shaped_moleculariq_reward: true
+shaped_moleculariq_weight: 1.0
+smiles_validity_weight: 0.5
+resume_from_checkpoint:
+save_on_interrupt: true
