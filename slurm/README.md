@@ -106,9 +106,13 @@ exact-match accuracy.
 - **Offline mode**: jobs export `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`,
   `HF_DATASETS_OFFLINE=1`. If you see a download error, the model/dataset wasn't
   cached on the login node — re-run `setup_leonardo.sh`.
-- **bitsandbytes**: the configs use `optim: adamw_8bit`. If bnb misbehaves,
-  install without it (`pip install -e ".[chem]"`) and change `optim` to
-  `adamw_torch` in the `*_train.yaml` configs.
+- **bitsandbytes / 8-bit optimizer**: NOT used on Leonardo. bitsandbytes 0.45.x
+  ships a CUDA library linked against `GLIBC_2.34`, but the RHEL 8 nodes only
+  provide glibc 2.28, so it cannot load and the 8-bit optimizer crashes at
+  `optimizer.step()`. The configs therefore use `optim: adamw_torch` (full
+  AdamW; for the 0.5B model the extra optimizer memory is negligible on an
+  A100). If you have a node with glibc >= 2.34 and want 8-bit, install
+  `pip install -e ".[chem,bnb]"` and set `optim: adamw_8bit`.
 - **True adaptive sampling** needs the balanced eval `summary.json` to exist,
   then the adaptive dataset must be rebuilt on a login node (internet) before
   retraining — see the comment in `strategies.slurm`.

@@ -72,8 +72,11 @@ pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu126
 pip install -r requirements.txt
 ```
 
-`bitsandbytes` provides the 8-bit AdamW optimizer used by default. If install
-fails on Windows, switch `optim: adamw_torch` in the YAML.
+The configs use `optim: adamw_torch` by default for broad compatibility.
+`bitsandbytes` (the `[bnb]` extra) provides an optional 8-bit AdamW optimizer;
+where it loads cleanly you can set `optim: adamw_8bit` in the YAML to save
+optimizer memory. It will not load on platforms with glibc < 2.34 (e.g. RHEL 8)
+or on Windows.
 
 After installation the workflows are available either through the script
 wrappers shown below or through console commands:

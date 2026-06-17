@@ -57,9 +57,15 @@ python -m pip install --upgrade pip setuptools wheel
 #      PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121 PYTORCH_VERSION=2.5.1 bash slurm/setup_leonardo.sh
 pip install "torch==${PYTORCH_VERSION}" --index-url "$PYTORCH_INDEX_URL"
 
-# 3) Project + chemistry (moleculariq-core, git) + 8-bit optimizer ----------
+# 3) Project + chemistry (moleculariq-core, git) ---------------------------
+#    NOTE: we deliberately do NOT install the [bnb] extra here. bitsandbytes
+#    0.45.x ships a prebuilt CUDA library linked against GLIBC_2.34, but the
+#    RHEL 8 compute nodes only provide glibc 2.28, so the native library
+#    cannot load and the 8-bit optimizer crashes at optimizer.step()
+#    (NameError: str2optimizer8bit_blockwise). The configs therefore use
+#    optim: adamw_torch instead of adamw_8bit.
 cd "$PROJECT_ROOT"
-pip install -c slurm/constraints-leonardo.txt -e ".[chem,bnb]"
+pip install -c slurm/constraints-leonardo.txt -e ".[chem]"
 
 # 4) Dependency sanity checks -----------------------------------------------
 pip check
@@ -75,7 +81,6 @@ packages = [
     "pyarrow",
     "accelerate",
     "peft",
-    "bitsandbytes",
     "numpy",
 ]
 for name in packages:
