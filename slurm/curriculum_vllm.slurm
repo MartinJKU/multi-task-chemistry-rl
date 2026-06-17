@@ -28,6 +28,7 @@ export HF_HOME="${HF_HOME:-$WORK/hf_cache}"
 PYTHON_MODULE="${PYTHON_MODULE:-python/3.11.6--gcc--8.5.0}"
 
 export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1

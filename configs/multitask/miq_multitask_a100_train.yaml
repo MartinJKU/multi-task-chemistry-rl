@@ -12,14 +12,16 @@ beta: 0.005
 
 # --- A100 (64 GB) throughput tuning ------------------------------------------
 # The 0.5B model + small batch made GRPO generation latency-bound, so a 3080 Ti
-# matched the A100. Decode many more completions in parallel to use the card:
-#   per_device_train_batch_size completions are generated together each step.
-# 64 completions -> ~4x the generation parallelism of the old 16. Drop to 32 if
-# you hit OOM; you can push to 96-128 on a 64 GB A100 if memory allows.
+# matched the A100. Decode more completions in parallel to use the card.
+# Memory note: GRPO materializes full-vocab logits (151,936) for BOTH the policy
+# and the KL reference model, so the training batch -- not generation -- is the
+# memory bottleneck. Keep gradient_checkpointing ON and a moderate batch.
+# 32 completions = 2x the old 16. If nvidia-smi shows headroom you can try 48;
+# if you OOM, drop to 16.
 num_generations: 8                  # also improves GRPO advantage estimates
-per_device_train_batch_size: 64     # must keep (bsz * grad_accum) divisible by num_generations
+per_device_train_batch_size: 32     # must keep (bsz * grad_accum) divisible by num_generations
 gradient_accumulation_steps: 1
-gradient_checkpointing: false       # 64 GB is plenty for 0.5B -> skip recompute overhead
+gradient_checkpointing: true        # required: full-vocab logits make this batch memory-bound
 # -----------------------------------------------------------------------------
 
 max_prompt_length: 384
