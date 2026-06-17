@@ -11,7 +11,9 @@ readme = "README.md"
 license = { text = "MIT" }
 dependencies = [
     "transformers>=4.47,<5.0",
-    "trl>=0.16,<2.0",
+    # Pin to the 0.16.x line the code targets. trl >=0.17 imports FSDPModule
+    # (FSDP2) from torch, which breaks on torch builds that predate that API.
+    "trl>=0.16,<0.17",
     "datasets>=3.0",
     "accelerate>=1.0",
     "peft>=0.10",
