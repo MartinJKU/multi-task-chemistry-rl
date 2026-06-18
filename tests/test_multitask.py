@@ -23,6 +23,82 @@ def test_task_spec_parses_properties_as_list():
     assert spec.task_kwargs()["properties"] == ["ring_count"]
 
 
+def test_task_kwargs_threads_filters_to_task():
+    """Verify difficulty filters reach the underlying task via task_kwargs.
+
+    This is what keeps training and evaluation on the same molecule
+    distribution: the eval path builds the task from task_kwargs, so filters
+    must propagate.
+    """
+    spec = MolecularIQTaskSpec.from_dict(
+        {
+            "task_id": "si_ring",
+            "task_type": "single_index",
+            "properties": ["ring_index"],
+            "candidate_multiplier": 6,
+            "filters": {"max_smiles_length": 90, "max_answer_list_length": 10},
+        }
+    )
+    kwargs = spec.task_kwargs(default_seed=42)
+    assert kwargs["filters"] == {"max_smiles_length": 90, "max_answer_list_length": 10}
+    assert kwargs["candidate_multiplier"] == 6
+
+
+def test_task_kwargs_omits_filters_when_absent():
+    """Verify count tasks without filters do not inject filter kwargs."""
+    spec = MolecularIQTaskSpec.from_dict(
+        {
+            "task_id": "sc_ring_count",
+            "task_type": "single_count",
+            "properties": ["ring_count"],
+        }
+    )
+    kwargs = spec.task_kwargs()
+    assert "filters" not in kwargs
+    assert "candidate_multiplier" not in kwargs
+
+
+def test_task_applies_answer_list_length_filter():
+    """Verify the task filters generated index examples by answer-list length.
+
+    Uses a synthetic in-memory SMILES pool so no network/HF download is needed.
+    """
+    from datasets import Dataset
+
+    from grpo_reasoning.common.tasks.moleculariq import MolecularIQTask
+
+    smiles = [
+        "c1ccccc1",
+        "CCO",
+        "C1CCCCC1",
+        "c1ccc2ccccc2c1",
+        "CC(=O)O",
+        "c1ccncc1",
+        "C1CCC2CCCCC2C1",
+        "c1ccc(cc1)c1ccccc1",
+    ] * 6
+
+    class _PooledTask(MolecularIQTask):
+        def load_raw(self, split):
+            return Dataset.from_dict({"smiles": smiles})
+
+    task = _PooledTask(
+        task_type="single_index",
+        properties=["ring_index"],
+        seed=43,
+        filters={"max_smiles_length": 90, "max_answer_list_length": 6},
+        candidate_multiplier=6,
+    )
+    ds = task.to_grpo_dataset(split="train", num_samples=10)
+    assert len(ds) > 0
+    max_len = max(
+        len(values)
+        for answer in ds["answer"]
+        for values in json.loads(answer).values()
+    )
+    assert max_len <= 6
+
+
 def test_multitask_config_requires_tasks():
     """Verify empty multitask configs are rejected early."""
     try:

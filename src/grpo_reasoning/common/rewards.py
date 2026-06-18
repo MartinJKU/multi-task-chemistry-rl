@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 from numbers import Number
 from typing import Callable
@@ -123,77 +122,17 @@ def make_moleculariq_reward(task_type: str, weight: float = 2.0) -> Callable:
     return correctness_reward
 
 
-def _score_moleculariq_completion(
-    completion_text: str,
-    gold_answer: str,
-    task_type: str,
-) -> float:
-    """Score one MolecularIQ completion with the official evaluator.
-
-    Args:
-        completion_text: Full assistant completion text.
-        gold_answer: JSON-encoded target or constraints.
-        task_type: MolecularIQ task type for this example.
-
-    Returns:
-        MolecularIQ score in [0, 1] when available, otherwise 0.
-    """
-    import json
-
-    from moleculariq_core import evaluate_answer
-
-    extracted = extract_xml_answer(completion_text)
-    if not extracted:
-        return 0.0
-    try:
-        target = json.loads(gold_answer) if isinstance(gold_answer, str) else gold_answer
-    except json.JSONDecodeError:
-        return 0.0
-
-    try:
-        if task_type == "constraint_generation":
-            return float(
-                evaluate_answer(
-                    task_type=task_type,
-                    predicted=extracted,
-                    constraints=target,
-                )
-            )
-        return float(
-            evaluate_answer(
-                task_type=task_type,
-                predicted=extracted,
-                target=target,
-            )
-        )
-    except Exception:
-        return 0.0
-
-
-def make_moleculariq_multitask_reward(weight: float = 2.0) -> Callable:
-    """Create a MolecularIQ correctness reward dispatched per example.
-
-    Args:
-        weight: Reward value assigned when a row's task-specific scorer fully matches.
-
-    Returns:
-        Reward function that reads the dataset `task_type` column for each row.
-    """
-
-    def correctness_reward(completions, answer, task_type=None, **_) -> list[float]:
-        """Score mixed MolecularIQ completions against row-specific task types."""
-        if task_type is None:
-            raise ValueError(
-                "Multitask MolecularIQ reward requires a `task_type` dataset column."
-            )
-        texts = [_completion_text(c) for c in completions]
-        return [
-            weight if _score_moleculariq_completion(text, gold, t_type) >= 1.0 else 0.0
-            for text, gold, t_type in zip(texts, answer, task_type)
-        ]
-
-    correctness_reward.__name__ = "moleculariq_multitask_correctness_reward"
-    return correctness_reward
+# ---------------------------------------------------------------------------
+# Verifier-backed scoring
+#
+# A single source of truth: ``moleculariq_core.evaluate_answer`` is the official
+# verifier. Both the exact-match verdict and the dense partial-credit signal are
+# derived from one verifier call (``return_details=True``) so they can never
+# disagree. The verifier returns a binary ``reward`` plus a ``details`` report
+# that exposes its own canonically parsed predictions and targets; partial
+# credit is computed on top of *those* values rather than re-parsing the model
+# output, which keeps shaping consistent with how correctness is judged.
+# ---------------------------------------------------------------------------
 
 
 def _parse_json(value):
@@ -204,14 +143,6 @@ def _parse_json(value):
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return None
-
-
-def _parse_extracted_answer(completion_text: str):
-    """Extract and parse the JSON object inside <answer> tags."""
-    extracted = extract_xml_answer(completion_text)
-    if not extracted:
-        return None
-    return _parse_json(extracted)
 
 
 def _as_number(value) -> float | None:
@@ -233,17 +164,6 @@ def _numeric_closeness(predicted, target) -> float:
         return 1.0
     scale = max(abs(gold), 1.0)
     return max(0.0, 1.0 / (1.0 + abs(pred - gold) / scale))
-
-
-def _dict_numeric_score(predicted, target) -> float:
-    """Average numeric partial credit over target dictionary keys."""
-    if not isinstance(predicted, dict) or not isinstance(target, dict) or not target:
-        return 0.0
-    scores = [
-        _numeric_closeness(predicted.get(key), gold_value)
-        for key, gold_value in target.items()
-    ]
-    return sum(scores) / len(scores)
 
 
 def _as_int_set(value) -> set[int] | None:
@@ -272,139 +192,186 @@ def _index_f1(predicted, target) -> float:
     return 2.0 * overlap / (len(pred) + len(gold))
 
 
-def _dict_index_score(predicted, target) -> float:
-    """Average atom-index partial credit over target dictionary keys."""
-    if not isinstance(predicted, dict) or not isinstance(target, dict) or not target:
-        return 0.0
-    scores = [_index_f1(predicted.get(key), gold_value) for key, gold_value in target.items()]
-    return sum(scores) / len(scores)
-
-
-def _rdkit_mol_from_smiles(smiles: str):
-    """Parse SMILES with RDKit when available."""
-    if not isinstance(smiles, str) or not smiles.strip():
-        return None
-    try:
-        from rdkit import Chem, RDLogger
-    except ImportError:
-        return None
-
-    RDLogger.DisableLog("rdApp.error")
-    try:
-        return Chem.MolFromSmiles(smiles)
-    except Exception:
-        return None
-
-
-def _compute_rdkit_property(mol, property_name: str) -> float | None:
-    """Compute a small set of MolecularIQ count properties directly with RDKit."""
-    if mol is None:
-        return None
-    try:
-        if property_name == "ring_count":
-            return float(mol.GetRingInfo().NumRings())
-        if property_name == "carbon_atom_count":
-            return float(sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() == 6))
-        if property_name == "hetero_atom_count":
-            return float(
-                sum(
-                    1
-                    for atom in mol.GetAtoms()
-                    if atom.GetAtomicNum() not in {1, 6}
-                )
-            )
-        if property_name == "halogen_atom_count":
-            return float(
-                sum(
-                    1
-                    for atom in mol.GetAtoms()
-                    if atom.GetAtomicNum() in {9, 17, 35, 53, 85}
-                )
-            )
-        if property_name == "heavy_atom_count":
-            return float(mol.GetNumHeavyAtoms())
-        if property_name == "aromatic_ring_count":
-            rings = mol.GetRingInfo().AtomRings()
-            return float(
-                sum(
-                    1
-                    for ring in rings
-                    if ring and all(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring)
-                )
-            )
-        if property_name == "hba_count":
-            from rdkit.Chem import Lipinski
-
-            return float(Lipinski.NumHAcceptors(mol))
-        if property_name == "hbd_count":
-            from rdkit.Chem import Lipinski
-
-            return float(Lipinski.NumHDonors(mol))
-        if property_name == "rotatable_bond_count":
-            from rdkit.Chem import Lipinski
-
-            return float(Lipinski.NumRotatableBonds(mol))
-    except Exception:
-        return None
-    return None
-
-
-def _constraint_satisfaction_score(predicted, target) -> tuple[float, bool]:
-    """Score generated SMILES constraints with validity and property closeness."""
-    if not isinstance(predicted, dict):
-        return 0.0, False
-    smiles = predicted.get("smiles")
-    mol = _rdkit_mol_from_smiles(smiles)
-    if mol is None:
-        return 0.0, False
-
-    constraints = target if isinstance(target, list) else [target]
-    scores: list[float] = []
-    for constraint in constraints:
-        if not isinstance(constraint, dict):
-            continue
-        prop = constraint.get("property")
-        op = constraint.get("operator", "=")
-        gold = _as_number(constraint.get("value"))
-        pred = _compute_rdkit_property(mol, str(prop))
-        if gold is None or pred is None or not math.isfinite(pred):
-            continue
-        if op == "=":
-            scores.append(_numeric_closeness(pred, gold))
-        elif op == ">=":
-            scores.append(1.0 if pred >= gold else _numeric_closeness(pred, gold))
-        elif op == ">":
-            scores.append(1.0 if pred > gold else _numeric_closeness(pred, gold))
-        elif op == "<=":
-            scores.append(1.0 if pred <= gold else _numeric_closeness(pred, gold))
-        elif op == "<":
-            scores.append(1.0 if pred < gold else _numeric_closeness(pred, gold))
-        else:
-            scores.append(_numeric_closeness(pred, gold))
-
-    if not scores:
-        return 0.0, True
-    return sum(scores) / len(scores), True
-
-
-def _moleculariq_shaped_score(
+def _verifier_report(
     completion_text: str,
     gold_answer: str,
     task_type: str,
-) -> tuple[float, bool]:
-    """Return task-shaped partial credit and SMILES validity flag."""
-    predicted = _parse_extracted_answer(completion_text)
-    target = _parse_json(gold_answer)
-    if predicted is None or target is None:
-        return 0.0, False
+) -> dict | None:
+    """Run the official MolecularIQ verifier once with detailed output.
 
+    Args:
+        completion_text: Full assistant completion text.
+        gold_answer: JSON-encoded target (count/index) or constraint list.
+        task_type: MolecularIQ task type for this example.
+
+    Returns:
+        The verifier's detail dictionary, or None when the answer or gold is
+        missing/unparseable. The dictionary always carries a ``reward`` key (the
+        binary exact-match verdict) plus a ``details`` report with the verifier's
+        own parsed predictions and targets.
+    """
+    from moleculariq_core import evaluate_answer
+
+    extracted = extract_xml_answer(completion_text)
+    if not extracted:
+        return None
+    target = _parse_json(gold_answer)
+    if target is None:
+        return None
+
+    try:
+        if task_type == "constraint_generation":
+            return evaluate_answer(
+                task_type=task_type,
+                predicted=extracted,
+                constraints=target,
+                return_details=True,
+            )
+        return evaluate_answer(
+            task_type=task_type,
+            predicted=extracted,
+            target=target,
+            return_details=True,
+        )
+    except Exception:
+        return None
+
+
+def _exact_score(report: dict | None) -> float:
+    """Return the verifier's binary exact-match score from a report."""
+    if not report:
+        return 0.0
+    try:
+        return float(report.get("reward", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _count_graded(report: dict) -> float:
+    """Average numeric closeness over the verifier's per-property count details."""
+    details = report.get("details") or {}
+    if not isinstance(details, dict) or not details:
+        return 0.0
+    scores = [
+        _numeric_closeness(entry.get("predicted"), entry.get("target"))
+        for entry in details.values()
+        if isinstance(entry, dict)
+    ]
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _index_graded(report: dict) -> float:
+    """Average atom-set F1 over the verifier's per-property index details."""
+    details = report.get("details") or {}
+    if not isinstance(details, dict) or not details:
+        return 0.0
+    scores = [
+        _index_f1(entry.get("predicted"), entry.get("target"))
+        for entry in details.values()
+        if isinstance(entry, dict)
+    ]
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _constraint_graded(report: dict) -> tuple[float, bool]:
+    """Score constraint generation from the verifier's per-constraint details.
+
+    Returns:
+        Tuple of partial-credit score in [0, 1] and a valid-SMILES flag. Credit
+        combines per-constraint satisfaction (numeric closeness when a supported
+        constraint is missed) and requires a valid, reasonable molecule.
+    """
+    valid_smiles = bool(report.get("valid_smiles"))
+    details = report.get("details") or []
+    total = report.get("total") or len(details)
+
+    if not total:
+        # No constraints to satisfy; credit a valid, reasonable molecule.
+        return (1.0 if valid_smiles else 0.0), valid_smiles
+    if not valid_smiles or not isinstance(details, list):
+        return 0.0, valid_smiles
+
+    scores: list[float] = []
+    for entry in details:
+        if not isinstance(entry, dict):
+            scores.append(0.0)
+        elif entry.get("satisfied"):
+            scores.append(1.0)
+        elif entry.get("supported"):
+            constraint = entry.get("constraint") or {}
+            scores.append(_numeric_closeness(entry.get("actual"), constraint.get("value")))
+        else:
+            scores.append(0.0)
+    return sum(scores) / total, valid_smiles
+
+
+def _graded_score(report: dict | None, task_type: str) -> tuple[float, bool]:
+    """Return task-shaped partial credit and a SMILES validity flag.
+
+    Partial credit is derived entirely from the official verifier's parsed
+    output so it never diverges from the exact-match verdict.
+
+    Args:
+        report: Verifier detail report, or None when scoring was not possible.
+        task_type: MolecularIQ task type for this example.
+
+    Returns:
+        Tuple of partial-credit score in [0, 1] and a valid-SMILES flag (only
+        meaningful for constraint-generation tasks).
+    """
+    if report is None:
+        return 0.0, False
     if task_type in {"single_count", "multi_count"}:
-        return _dict_numeric_score(predicted, target), False
+        return _count_graded(report), False
     if task_type in {"single_index", "multi_index"}:
-        return _dict_index_score(predicted, target), False
+        return _index_graded(report), False
     if task_type == "constraint_generation":
-        return _constraint_satisfaction_score(predicted, target)
+        return _constraint_graded(report)
     return 0.0, False
+
+
+def _score_moleculariq_completion(
+    completion_text: str,
+    gold_answer: str,
+    task_type: str,
+) -> float:
+    """Score one MolecularIQ completion with the official binary verifier.
+
+    Args:
+        completion_text: Full assistant completion text.
+        gold_answer: JSON-encoded target or constraints.
+        task_type: MolecularIQ task type for this example.
+
+    Returns:
+        1.0 when the verifier reports a full match, otherwise 0.0.
+    """
+    return _exact_score(_verifier_report(completion_text, gold_answer, task_type))
+
+
+def make_moleculariq_multitask_reward(weight: float = 2.0) -> Callable:
+    """Create a MolecularIQ correctness reward dispatched per example.
+
+    Args:
+        weight: Reward value assigned when a row's task-specific scorer fully matches.
+
+    Returns:
+        Reward function that reads the dataset `task_type` column for each row.
+    """
+
+    def correctness_reward(completions, answer, task_type=None, **_) -> list[float]:
+        """Score mixed MolecularIQ completions against row-specific task types."""
+        if task_type is None:
+            raise ValueError(
+                "Multitask MolecularIQ reward requires a `task_type` dataset column."
+            )
+        texts = [_completion_text(c) for c in completions]
+        return [
+            weight if _score_moleculariq_completion(text, gold, t_type) >= 1.0 else 0.0
+            for text, gold, t_type in zip(texts, answer, task_type)
+        ]
+
+    correctness_reward.__name__ = "moleculariq_multitask_correctness_reward"
+    return correctness_reward
 
 
 def make_moleculariq_shaped_reward(
@@ -443,11 +410,12 @@ def make_moleculariq_shaped_reward(
 
         scores: list[float] = []
         for completion, gold, row_task_type in zip(completions, answer, row_task_types):
-            score, valid_smiles = _moleculariq_shaped_score(
+            report = _verifier_report(
                 _completion_text(completion),
                 gold,
                 row_task_type,
             )
+            score, valid_smiles = _graded_score(report, row_task_type)
             reward = weight * score
             if row_task_type == "constraint_generation" and valid_smiles:
                 reward += smiles_validity_weight
@@ -463,7 +431,7 @@ def moleculariq_diagnostics(
     gold_answer: str,
     task_type: str,
 ) -> dict[str, float | bool]:
-    """Compute diagnostic partial metrics for one MolecularIQ completion.
+    """Compute diagnostic metrics for one MolecularIQ completion.
 
     Args:
         completion_text: Full assistant completion text.
@@ -471,18 +439,17 @@ def moleculariq_diagnostics(
         task_type: MolecularIQ task type for this example.
 
     Returns:
-        Dictionary with answer parsing, partial score, and SMILES validity flags.
+        Dictionary with answer parsing, exact-match verdict, partial score, and
+        SMILES validity flags, all derived from the official verifier.
     """
     extracted = extract_xml_answer(completion_text)
     parsed = _parse_json(extracted) if extracted else None
-    partial_score, valid_smiles = _moleculariq_shaped_score(
-        completion_text,
-        gold_answer,
-        task_type,
-    )
+    report = _verifier_report(completion_text, gold_answer, task_type)
+    partial_score, valid_smiles = _graded_score(report, task_type)
     return {
         "answer_present": bool(extracted),
         "json_valid": parsed is not None,
+        "exact_match": _exact_score(report),
         "partial_score": float(partial_score),
         "valid_smiles": bool(valid_smiles),
     }

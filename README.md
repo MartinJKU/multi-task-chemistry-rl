@@ -201,11 +201,15 @@ Scoring uses `moleculariq_core.evaluate_answer`, which tolerates property-name
 aliases and JSON formatting variations; the format reward still enforces the
 R1 `<reasoning>...</reasoning>\n<answer>...</answer>` scaffold.
 
-Training also includes a shaped MolecularIQ reward by default. Exact correctness
-is still rewarded separately, but count tasks get numeric-closeness partial
-credit, index tasks get atom-set overlap credit, and constraint-generation tasks
-get valid-SMILES credit plus property-closeness credit for supported RDKit
-properties.
+The official verifier is the single source of truth for both the exact-match
+verdict and the dense partial-credit signal. Every score comes from one
+`evaluate_answer(..., return_details=True)` call, so shaping can never diverge
+from how correctness is judged: the exact reward/metric is the verifier's binary
+`reward`, while the shaped reward derives partial credit from the verifier's own
+parsed `details` — numeric closeness for count tasks, atom-set F1 overlap for
+index tasks, and per-constraint satisfaction plus valid-SMILES credit for
+constraint generation. The dense signal is what lets GRPO learn hard set-valued
+index tasks even though exact-match credit is all-or-nothing.
 
 ### Automated specialist comparison
 
@@ -292,11 +296,21 @@ latest checkpoint under each output folder, reads model summaries from
 
 New evaluation files also include diagnostic partial metrics:
 
-- `partial_score_mean`: shaped partial score before exact-match thresholding.
+- `partial_score_mean`: verifier-derived partial score before exact-match
+  thresholding (numeric closeness, index F1, or constraint satisfaction). For
+  set-valued index tasks this is the more informative signal, since exact-match
+  accuracy stays low even when the model is mostly right.
 - `answer_present_rate`: fraction of completions with `<answer>...</answer>`.
 - `json_valid_rate`: fraction of extracted answers that parse as JSON.
 - `valid_smiles_rate`: fraction with parseable generated SMILES, mainly useful
   for `constraint_generation`.
+
+Index tasks declare difficulty `filters` (and a `candidate_multiplier` for
+over-generation) in their task spec. These are applied identically when building
+the training set **and** when generating the evaluation set, so models are
+scored on the same tractable molecule distribution they were trained on. The
+filters live in the task itself, so single-task eval, multitask eval, and
+curriculum stages all stay aligned.
 
 ## Curriculum training
 

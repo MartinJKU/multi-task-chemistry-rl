@@ -157,3 +157,29 @@ def test_moleculariq_diagnostics_reports_partial_score():
     assert out["answer_present"] is True
     assert out["json_valid"] is True
     assert 0.8 < out["partial_score"] < 0.9
+    # Exact-match verdict and partial credit come from the same verifier call.
+    assert out["exact_match"] == 0.0
+
+
+def test_moleculariq_diagnostics_exact_match_on_perfect_answer():
+    """Verify a perfect index answer reports exact_match=1.0 and partial=1.0."""
+    completion = '<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 2]}</answer>'
+    out = moleculariq_diagnostics(completion, '{"ring_index": [0, 1, 2]}', "single_index")
+    assert out["exact_match"] == 1.0
+    assert out["partial_score"] == 1.0
+
+
+def test_shaped_index_partial_is_dense_but_exact_is_zero():
+    """Verify a near-miss index answer earns dense credit while exact match fails.
+
+    This is the property that lets GRPO learn set-valued index tasks: the shaped
+    reward is well above zero even though the all-or-nothing verdict is wrong.
+    """
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    near_miss = [
+        _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 2, 3]}</answer>')
+    ]
+    out = reward(completions=near_miss, answer=['{"ring_index": [0, 1, 2, 3, 4]}'])
+    assert 0.0 < out[0] < 1.0
+    diag = moleculariq_diagnostics(near_miss[0][0]["content"], '{"ring_index": [0, 1, 2, 3, 4]}', "single_index")
+    assert diag["exact_match"] == 0.0

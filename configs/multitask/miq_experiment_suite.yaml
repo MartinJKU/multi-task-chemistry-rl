@@ -35,25 +35,49 @@ tasks:
     task_type: multi_count
     properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
 
+  # Index tasks are restricted to smaller molecules with shorter answer lists so
+  # exact-match stays achievable for the 0.5B model. These filters are applied to
+  # both training and evaluation, so every approach is scored on the same
+  # tractable index distribution (matches the pooled/balanced/adaptive configs).
   - task_id: si_ring
     task_type: single_index
     properties: [ring_index]
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_aromatic_ring
     task_type: single_index
     properties: [aromatic_ring_index]
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_carbon_atom
     task_type: single_index
     properties: [carbon_atom_index]
+    candidate_multiplier: 8
+    filters:
+      max_smiles_length: 70
+      max_answer_list_length: 18
 
   - task_id: si_hetero_atom
     task_type: single_index
     properties: [hetero_atom_index]
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: mi_ring_aromatic
     task_type: multi_index
     properties: [ring_index, aromatic_ring_index]
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: cg_ring_count
     task_type: constraint_generation
