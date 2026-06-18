@@ -45,17 +45,33 @@ def evaluate_multitask_main() -> None:
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--max-new-tokens", type=int, default=512)
     p.add_argument("--out-dir", default="outputs/multitask_eval")
+    p.add_argument(
+        "--soft-match-threshold",
+        type=float,
+        default=0.9,
+        help="Partial-score cutoff for the lenient soft_accuracy metric.",
+    )
+    p.add_argument(
+        "--no-filtered-eval",
+        action="store_true",
+        help=(
+            "Evaluate on the raw (unfiltered) test distribution. By default the "
+            "same dataset filters used for training (e.g. shorter index lists) are "
+            "applied to the test split so exact-match accuracy is achievable."
+        ),
+    )
     args = p.parse_args()
 
     import gc
     import json
+    from dataclasses import replace
     from datetime import datetime
 
     import torch
 
     from ..common.eval import evaluate
     from ..common.utils import load_yaml
-    from .dataset import MultitaskDatasetConfig
+    from .dataset import MultitaskDatasetConfig, build_task_dataset
 
     cfg = MultitaskDatasetConfig.from_dict(load_yaml(args.config))
     label = args.model_label or Path(args.model).name.replace("/", "_")
@@ -65,6 +81,18 @@ def evaluate_multitask_main() -> None:
     task_results = []
     for spec in cfg.tasks:
         print(f"\n=== Eval {label}: {spec.task_id} ===")
+        eval_dataset = None
+        if spec.filters and not args.no_filtered_eval:
+            # Mirror the training distribution: build a filtered *test* split so the
+            # exact-match target is achievable instead of arbitrarily long lists.
+            built = build_task_dataset(
+                replace(spec, num_samples=args.num_samples),
+                split="test",
+                default_seed=cfg.seed,
+            )
+            if len(built) > args.num_samples:
+                built = built.select(range(args.num_samples))
+            eval_dataset = built
         metrics = evaluate(
             model_path=args.model,
             task_name="moleculariq",
@@ -73,12 +101,15 @@ def evaluate_multitask_main() -> None:
             max_new_tokens=args.max_new_tokens,
             save_path=out_dir / f"{spec.task_id}_eval.json",
             task_kwargs=spec.task_kwargs(default_seed=cfg.seed),
+            dataset=eval_dataset,
+            soft_match_threshold=args.soft_match_threshold,
         )
         task_row = {
             "task_id": spec.task_id,
             "task_type": spec.task_type,
             "properties": list(spec.properties),
             "accuracy": metrics["accuracy"],
+            "soft_accuracy": metrics["soft_accuracy"],
             "correct": metrics["correct"],
             "total": metrics["total"],
         }
@@ -96,12 +127,19 @@ def evaluate_multitask_main() -> None:
             torch.cuda.empty_cache()
 
     accuracies = [row["accuracy"] for row in task_results]
+    soft_accuracies = [row["soft_accuracy"] for row in task_results]
     summary = {
         "model_label": label,
         "model_path": args.model,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "soft_match_threshold": args.soft_match_threshold,
+        "filtered_eval": not args.no_filtered_eval,
         "macro_accuracy": sum(accuracies) / len(accuracies) if accuracies else 0.0,
         "worst_task_accuracy": min(accuracies) if accuracies else 0.0,
+        "macro_soft_accuracy": (
+            sum(soft_accuracies) / len(soft_accuracies) if soft_accuracies else 0.0
+        ),
+        "worst_task_soft_accuracy": min(soft_accuracies) if soft_accuracies else 0.0,
         "tasks": task_results,
     }
     partial_scores = [
@@ -114,8 +152,9 @@ def evaluate_multitask_main() -> None:
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\n[multitask-eval] wrote {summary_path}")
-    print(f"[multitask-eval] macro accuracy = {summary['macro_accuracy']:.2%}")
-    print(f"[multitask-eval] worst task     = {summary['worst_task_accuracy']:.2%}")
+    print(f"[multitask-eval] macro accuracy      = {summary['macro_accuracy']:.2%}")
+    print(f"[multitask-eval] macro soft accuracy = {summary['macro_soft_accuracy']:.2%}")
+    print(f"[multitask-eval] worst task          = {summary['worst_task_accuracy']:.2%}")
 
 
 def curriculum_main() -> None:

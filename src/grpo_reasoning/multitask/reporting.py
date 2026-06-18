@@ -134,6 +134,7 @@ def write_eval_tables(summaries: list[EvalSummary], out_dir: Path | str) -> list
     overall_fields = [
         "model",
         "macro_accuracy",
+        "macro_soft_accuracy",
         "worst_task_accuracy",
         "macro_partial_score",
         "model_path",
@@ -147,6 +148,7 @@ def write_eval_tables(summaries: list[EvalSummary], out_dir: Path | str) -> list
                 {
                     "model": summary["_label"],
                     "macro_accuracy": _fmt(summary.get("macro_accuracy")),
+                    "macro_soft_accuracy": _fmt(summary.get("macro_soft_accuracy")),
                     "worst_task_accuracy": _fmt(summary.get("worst_task_accuracy")),
                     "macro_partial_score": _fmt(summary.get("macro_partial_score")),
                     "model_path": summary.get("model_path", ""),
@@ -160,6 +162,7 @@ def write_eval_tables(summaries: list[EvalSummary], out_dir: Path | str) -> list
         task_fields.extend(
             [
                 f"{label}_accuracy",
+                f"{label}_soft_accuracy",
                 f"{label}_partial_score_mean",
                 f"{label}_json_valid_rate",
                 f"{label}_answer_present_rate",
@@ -228,6 +231,20 @@ def plot_eval_comparisons(
         _plot_task_wins(summaries, out_dir),
         _plot_task_type_accuracy(summaries, out_dir),
     ]
+
+    if any(
+        "soft_accuracy" in task
+        for summary in summaries
+        for task in summary.get("tasks", [])
+    ):
+        paths.append(
+            _plot_task_heatmap(
+                summaries,
+                out_dir,
+                "soft_accuracy",
+                "per_task_soft_accuracy_heatmap.png",
+            )
+        )
 
     if any(
         "partial_score_mean" in task
@@ -318,6 +335,7 @@ def _task_rows(summaries: list[EvalSummary]) -> list[dict[str, Any]]:
                 }
             for metric in (
                 "accuracy",
+                "soft_accuracy",
                 "partial_score_mean",
                 "json_valid_rate",
                 "answer_present_rate",
@@ -345,7 +363,10 @@ def _task_rows(summaries: list[EvalSummary]) -> list[dict[str, Any]]:
 
 def _plot_overall_metrics(summaries: list[EvalSummary], out_dir: Path) -> Path:
     labels = [summary["_label"] for summary in summaries]
-    metric_names = ["macro_accuracy", "worst_task_accuracy"]
+    metric_names = ["macro_accuracy"]
+    if any("macro_soft_accuracy" in summary for summary in summaries):
+        metric_names.append("macro_soft_accuracy")
+    metric_names.append("worst_task_accuracy")
     if any("macro_partial_score" in summary for summary in summaries):
         metric_names.append("macro_partial_score")
 

@@ -292,11 +292,27 @@ latest checkpoint under each output folder, reads model summaries from
 
 New evaluation files also include diagnostic partial metrics:
 
+- `soft_accuracy`: fraction of completions whose shaped partial score is at least
+  `--soft-match-threshold` (default `0.9`). This is the meaningful headline metric
+  for index tasks: exact full-set atom-index match is near-impossible for a 0.5B
+  model, so raw `accuracy` reads ~0 even when the model is mostly right.
+  `summary.json` also reports `macro_soft_accuracy` / `worst_task_soft_accuracy`,
+  and the report writes a `per_task_soft_accuracy_heatmap.png`.
 - `partial_score_mean`: shaped partial score before exact-match thresholding.
 - `answer_present_rate`: fraction of completions with `<answer>...</answer>`.
 - `json_valid_rate`: fraction of extracted answers that parse as JSON.
 - `valid_smiles_rate`: fraction with parseable generated SMILES, mainly useful
   for `constraint_generation`.
+
+### Filtered evaluation
+
+By default `evaluate_multitask.py` applies any per-task `filters` from the eval
+config to the **test** split, so index tasks are scored on the same shorter-molecule
+/ shorter-list regime the models are trained on. Without this, every model
+(curriculum and joint alike) scores ~0% on index because exact match on long atom
+lists is unachievable. Pass `--no-filtered-eval` to score on the raw distribution
+instead. Use `configs/multitask/miq_eval_suite.yaml` so all models are compared on
+one identical filtered test set.
 
 ## Curriculum training
 
@@ -325,19 +341,30 @@ python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_
 python scripts/train.py --config configs/multitask/miq_curriculum_03_full_index_train.yaml
 ```
 
-Stage 4: constraint generation with replay
+Stage 4: constraint generation with count + index replay
 
 ```powershell
 python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_04_generation.yaml
 python scripts/train.py --config configs/multitask/miq_curriculum_04_generation_train.yaml
 ```
 
-Evaluate the final curriculum model against the full suite:
+Stage 5: consolidation over all 16 tasks (balanced)
 
 ```powershell
-python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_multitask_balanced.yaml `
-    --model outputs/miq-curriculum-04-generation --model-label curriculum
+python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_05_consolidation.yaml
+python scripts/train.py --config configs/multitask/miq_curriculum_05_consolidation_train.yaml
 ```
+
+Evaluate the final curriculum model against the shared eval suite:
+
+```powershell
+python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_eval_suite.yaml `
+    --model outputs/miq-curriculum-05-consolidation --model-label curriculum
+```
+
+`configs/multitask/miq_eval_suite.yaml` is the recommended config for comparing
+*all* approaches (pooled / balanced / adaptive / curriculum) because it scores
+every model on one identical, filtered test distribution.
 
 For a quick smoke test, run each stage with a temporary output directory and a
 small step cap, for example:
@@ -351,10 +378,27 @@ The default curriculum stages are:
 
 | Stage | Focus |
 |-------|-------|
-| `01_counts` | Single-count and multi-count foundations. |
-| `02_simple_index` | Shorter SMILES and shorter index lists, plus count replay. |
-| `03_full_index` | Full index tasks and multi-index with count replay. |
-| `04_generation` | Constraint generation with count/index replay. |
+| `01_counts` | Single-count and multi-count foundations (all 9 count tasks). |
+| `02_simple_index` | Single-property index tasks (length-filtered) + replay of **all** count tasks. |
+| `03_full_index` | Adds multi-index; keeps all single-index (still filtered) + replay of all count tasks. |
+| `04_generation` | Constraint generation + replay of all count **and** index tasks. |
+| `05_consolidation` | All 16 tasks balanced — integration stage that prevents forgetting and lets the curriculum beat joint training. |
+
+Two design choices are what make this curriculum competitive with (and intended
+to beat) pooled/balanced/adaptive joint training:
+
+- **Full replay every stage.** Each stage replays *every* previously-learned task
+  (~30-40% of the stage), instead of a token 1-2 task sample. This stops the
+  catastrophic forgetting that previously made later stages erase earlier count
+  skills (e.g. `sc_fused_ring` halving after the generation stage).
+- **A final consolidation stage.** Reaching an all-task balanced stage from a
+  curriculum-built initialization keeps every skill fresh and gives the model a
+  strong starting point, which a from-scratch joint run does not have.
+
+Index tasks keep the same length filters (`max_smiles_length`,
+`max_answer_list_length`) at every stage so the exact-match target stays
+achievable for a 0.5B model, and `shaped_moleculariq_weight` is raised to `1.5`
+so partial credit gives a denser GRPO signal on hard index tasks.
 
 `scripts/multitask/run_curriculum.py --config configs/multitask/miq_curriculum.yaml`
 is still available as a convenience wrapper that runs all stages in order, but

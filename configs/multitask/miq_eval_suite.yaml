@@ -1,98 +1,93 @@
-# Stage 4 dataset: constraint generation + count AND index replay.
-# Counts replay at 150 each and index at 200 each so neither skill family decays
-# while the model learns to generate constrained molecules.
-out_dir: data/miq_curriculum_04_generation_train
-strategy: pooled
-split: train
-seed: 45
-shuffle: true
+# Shared evaluation suite for ALL multitask models (pooled / balanced / adaptive /
+# curriculum). Use this single config so every model is scored on an identical test
+# distribution. evaluate_multitask.py applies the index `filters` below to the *test*
+# split (unless --no-filtered-eval is passed), mirroring the training distribution so
+# exact-match accuracy on index tasks is actually achievable for a 0.5B model. The
+# evaluator also reports a lenient `soft_accuracy` (partial score >= --soft-match-threshold).
+#
+#   python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_eval_suite.yaml \
+#       --model outputs/miq-curriculum-05-consolidation --model-label curriculum
+#
+# `num_samples` here is a generation-headroom hint; the evaluator overrides it with
+# --num-samples (default 200) and caps each task at that many filtered examples.
+seed: 42
+out_dir: data/_miq_eval_suite_unused
+strategy: balanced
 
 tasks:
-  - task_id: sc_ring_count_replay
+  - task_id: sc_ring_count
     task_type: single_count
     properties: [ring_count]
-    num_samples: 150
 
-  - task_id: sc_aromatic_ring_replay
+  - task_id: sc_aromatic_ring
     task_type: single_count
     properties: [aromatic_ring_count]
-    num_samples: 150
 
-  - task_id: sc_fused_ring_replay
+  - task_id: sc_fused_ring
     task_type: single_count
     properties: [fused_ring_count]
-    num_samples: 150
 
-  - task_id: sc_carbon_atom_replay
+  - task_id: sc_carbon_atom
     task_type: single_count
     properties: [carbon_atom_count]
-    num_samples: 150
 
-  - task_id: sc_hetero_atom_replay
+  - task_id: sc_hetero_atom
     task_type: single_count
     properties: [hetero_atom_count]
-    num_samples: 150
 
-  - task_id: sc_hba_replay
+  - task_id: sc_hba
     task_type: single_count
     properties: [hba_count]
-    num_samples: 150
 
-  - task_id: sc_rotatable_bond_replay
+  - task_id: sc_rotatable_bond
     task_type: single_count
     properties: [rotatable_bond_count]
-    num_samples: 150
 
-  - task_id: mc_topology_replay
+  - task_id: mc_topology
     task_type: multi_count
     properties: [ring_count, aromatic_ring_count, fused_ring_count]
-    num_samples: 150
 
-  - task_id: mc_composition_replay
+  - task_id: mc_composition
     task_type: multi_count
     properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
-    num_samples: 150
 
-  - task_id: si_ring_replay
+  # Index tasks are filtered to the same shorter-molecule / shorter-list regime the
+  # models are trained on, so exact-match is a meaningful (achievable) target.
+  - task_id: si_ring
     task_type: single_index
     properties: [ring_index]
-    num_samples: 200
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
       max_answer_list_length: 10
 
-  - task_id: si_aromatic_ring_replay
+  - task_id: si_aromatic_ring
     task_type: single_index
     properties: [aromatic_ring_index]
-    num_samples: 200
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
       max_answer_list_length: 10
 
-  - task_id: si_carbon_atom_replay
+  - task_id: si_carbon_atom
     task_type: single_index
     properties: [carbon_atom_index]
-    num_samples: 200
     candidate_multiplier: 8
     filters:
       max_smiles_length: 70
       max_answer_list_length: 18
 
-  - task_id: si_hetero_atom_replay
+  - task_id: si_hetero_atom
     task_type: single_index
     properties: [hetero_atom_index]
-    num_samples: 200
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
       max_answer_list_length: 10
 
-  - task_id: mi_ring_aromatic_replay
+  - task_id: mi_ring_aromatic
     task_type: multi_index
     properties: [ring_index, aromatic_ring_index]
-    num_samples: 200
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
@@ -101,9 +96,7 @@ tasks:
   - task_id: cg_ring_count
     task_type: constraint_generation
     properties: [ring_count]
-    num_samples: 2000
 
   - task_id: cg_carbon_atom
     task_type: constraint_generation
     properties: [carbon_atom_count]
-    num_samples: 2000

@@ -1,62 +1,64 @@
-# Stage 2 dataset: simple (single-property) index tasks + FULL count replay.
-# All 9 count tasks are replayed (350 each) so count skills do not decay while the
-# model learns atom indexing. Index tasks are length-filtered for achievable targets.
-out_dir: data/miq_curriculum_02_simple_index_train
-strategy: pooled
+# Stage 5 dataset: consolidation over ALL 16 tasks, balanced. This integration stage
+# revisits every task family at equal weight from the curriculum-built initialization,
+# which is what lets the curriculum match-or-beat joint (pooled/balanced/adaptive)
+# training while guaranteeing the final model has seen every task recently.
+out_dir: data/miq_curriculum_05_consolidation_train
+strategy: balanced
 split: train
-seed: 43
+seed: 46
 shuffle: true
+samples_per_task: 600
 
 tasks:
-  - task_id: sc_ring_count_replay
+  - task_id: sc_ring_count
     task_type: single_count
     properties: [ring_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: sc_aromatic_ring_replay
+  - task_id: sc_aromatic_ring
     task_type: single_count
     properties: [aromatic_ring_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: sc_fused_ring_replay
+  - task_id: sc_fused_ring
     task_type: single_count
     properties: [fused_ring_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: sc_carbon_atom_replay
+  - task_id: sc_carbon_atom
     task_type: single_count
     properties: [carbon_atom_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: sc_hetero_atom_replay
+  - task_id: sc_hetero_atom
     task_type: single_count
     properties: [hetero_atom_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: sc_hba_replay
+  - task_id: sc_hba
     task_type: single_count
     properties: [hba_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: sc_rotatable_bond_replay
+  - task_id: sc_rotatable_bond
     task_type: single_count
     properties: [rotatable_bond_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: mc_topology_replay
+  - task_id: mc_topology
     task_type: multi_count
     properties: [ring_count, aromatic_ring_count, fused_ring_count]
-    num_samples: 350
+    num_samples: 600
 
-  - task_id: mc_composition_replay
+  - task_id: mc_composition
     task_type: multi_count
     properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
-    num_samples: 350
+    num_samples: 600
 
   - task_id: si_ring
     task_type: single_index
     properties: [ring_index]
-    num_samples: 1500
+    num_samples: 600
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
@@ -65,7 +67,7 @@ tasks:
   - task_id: si_aromatic_ring
     task_type: single_index
     properties: [aromatic_ring_index]
-    num_samples: 1500
+    num_samples: 600
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
@@ -74,7 +76,7 @@ tasks:
   - task_id: si_carbon_atom
     task_type: single_index
     properties: [carbon_atom_index]
-    num_samples: 1500
+    num_samples: 600
     candidate_multiplier: 8
     filters:
       max_smiles_length: 70
@@ -83,8 +85,27 @@ tasks:
   - task_id: si_hetero_atom
     task_type: single_index
     properties: [hetero_atom_index]
-    num_samples: 1500
+    num_samples: 600
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
       max_answer_list_length: 10
+
+  - task_id: mi_ring_aromatic
+    task_type: multi_index
+    properties: [ring_index, aromatic_ring_index]
+    num_samples: 600
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
+  - task_id: cg_ring_count
+    task_type: constraint_generation
+    properties: [ring_count]
+    num_samples: 600
+
+  - task_id: cg_carbon_atom
+    task_type: constraint_generation
+    properties: [carbon_atom_count]
+    num_samples: 600

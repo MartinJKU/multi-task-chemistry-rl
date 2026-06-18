@@ -25,6 +25,8 @@ def evaluate(
     max_new_tokens: int = 512,
     save_path: str | Path | None = None,
     task_kwargs: dict | None = None,
+    dataset: Dataset | None = None,
+    soft_match_threshold: float = 0.9,
 ) -> dict[str, Any]:
     """Run greedy evaluation on a task test split.
 
@@ -36,12 +38,25 @@ def evaluate(
         max_new_tokens: Maximum number of completion tokens to generate.
         save_path: Optional JSON output path for metrics and per-sample results.
         task_kwargs: Optional task-specific keyword arguments.
+        dataset: Optional pre-built evaluation dataset. When provided it is used
+            verbatim (e.g. a filtered curriculum test split) instead of generating
+            a fresh test split from the task. Must expose `prompt`, `answer`, and
+            `question` columns.
+        soft_match_threshold: Partial-credit cutoff used to compute a lenient
+            `soft_accuracy`. A completion counts as a soft match when its shaped
+            partial score is at least this value, so near-miss index answers (which
+            almost never reach an exact full-set match for a small model) still
+            register progress.
 
     Returns:
-        Metrics dictionary containing accuracy, counts, model path, task, and timestamp.
+        Metrics dictionary containing accuracy, soft accuracy, counts, model path,
+        task, and timestamp.
     """
     task = get_task(task_name, **(task_kwargs or {}))
-    ds: Dataset = task.to_grpo_dataset(split="test", num_samples=num_samples)
+    if dataset is not None:
+        ds = dataset
+    else:
+        ds = task.to_grpo_dataset(split="test", num_samples=num_samples)
 
     print(f"[eval] model   = {model_path}")
     print(f"[eval] task    = {task_name}")
@@ -60,6 +75,7 @@ def evaluate(
 
     results: list[dict] = []
     correct = 0
+    soft_correct = 0
     diagnostic_rows: list[dict[str, float | bool]] = []
     eval_task_type = getattr(task, "task_type", None)
 
@@ -102,16 +118,25 @@ def evaluate(
                 "response": resp,
                 "correct": is_correct,
             }
+            soft_is_correct = is_correct
             if task_name == "moleculariq" and eval_task_type is not None:
                 diagnostics = moleculariq_diagnostics(resp, g, eval_task_type)
                 row["diagnostics"] = diagnostics
                 diagnostic_rows.append(diagnostics)
+                soft_is_correct = (
+                    float(diagnostics["partial_score"]) >= soft_match_threshold
+                )
+            row["soft_correct"] = bool(soft_is_correct)
+            soft_correct += int(soft_is_correct)
             results.append(row)
 
     total = len(results)
     metrics = {
         "accuracy": correct / total if total else 0.0,
         "correct": correct,
+        "soft_accuracy": soft_correct / total if total else 0.0,
+        "soft_correct": soft_correct,
+        "soft_match_threshold": soft_match_threshold,
         "total": total,
         "model_path": str(model_path),
         "task": task_name,
@@ -144,5 +169,8 @@ def evaluate(
             json.dump({"metrics": metrics, "results": results}, f, indent=2)
         print(f"[eval] wrote {save_path}")
 
-    print(f"[eval] accuracy = {metrics['accuracy']:.2%} ({correct}/{total})")
+    print(
+        f"[eval] accuracy = {metrics['accuracy']:.2%} ({correct}/{total}) | "
+        f"soft@{soft_match_threshold:g} = {metrics['soft_accuracy']:.2%} ({soft_correct}/{total})"
+    )
     return metrics

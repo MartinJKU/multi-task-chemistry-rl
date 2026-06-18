@@ -100,7 +100,7 @@ PY
 
 # 6) Pre-build ALL datasets (downloads the MolecularIQ SMILES pool once) -----
 #    After this, training jobs read datasets from disk and need no internet.
-#    `--dataset-only` builds all 4 curriculum stage datasets, INCLUDING
+#    `--dataset-only` builds all 5 curriculum stage datasets, INCLUDING
 #    data/miq_curriculum_01_counts_train (stage 1) which the strategy runs reuse
 #    as their counts warm-start dataset -- so we do NOT rebuild it separately.
 grpo-curriculum --config configs/multitask/miq_curriculum.yaml --dataset-only

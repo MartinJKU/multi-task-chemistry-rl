@@ -1,3 +1,6 @@
+# Stage 3 dataset: add multi-index + keep ALL single-index, with FULL count replay.
+# Index filters are kept here (the previous version dropped them, which made exact
+# match impossible on long atom-index lists). Counts replay at 250 each.
 out_dir: data/miq_curriculum_03_full_index_train
 strategy: pooled
 split: train
@@ -8,34 +11,89 @@ tasks:
   - task_id: sc_ring_count_replay
     task_type: single_count
     properties: [ring_count]
-    num_samples: 500
+    num_samples: 250
+
+  - task_id: sc_aromatic_ring_replay
+    task_type: single_count
+    properties: [aromatic_ring_count]
+    num_samples: 250
+
+  - task_id: sc_fused_ring_replay
+    task_type: single_count
+    properties: [fused_ring_count]
+    num_samples: 250
+
+  - task_id: sc_carbon_atom_replay
+    task_type: single_count
+    properties: [carbon_atom_count]
+    num_samples: 250
+
+  - task_id: sc_hetero_atom_replay
+    task_type: single_count
+    properties: [hetero_atom_count]
+    num_samples: 250
+
+  - task_id: sc_hba_replay
+    task_type: single_count
+    properties: [hba_count]
+    num_samples: 250
+
+  - task_id: sc_rotatable_bond_replay
+    task_type: single_count
+    properties: [rotatable_bond_count]
+    num_samples: 250
 
   - task_id: mc_topology_replay
     task_type: multi_count
     properties: [ring_count, aromatic_ring_count, fused_ring_count]
-    num_samples: 500
+    num_samples: 250
+
+  - task_id: mc_composition_replay
+    task_type: multi_count
+    properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+    num_samples: 250
 
   - task_id: si_ring
     task_type: single_index
     properties: [ring_index]
-    num_samples: 1500
+    num_samples: 1300
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_aromatic_ring
     task_type: single_index
     properties: [aromatic_ring_index]
-    num_samples: 1500
+    num_samples: 1300
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_carbon_atom
     task_type: single_index
     properties: [carbon_atom_index]
-    num_samples: 1500
+    num_samples: 1300
+    candidate_multiplier: 8
+    filters:
+      max_smiles_length: 70
+      max_answer_list_length: 18
 
   - task_id: si_hetero_atom
     task_type: single_index
     properties: [hetero_atom_index]
-    num_samples: 1500
+    num_samples: 1300
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: mi_ring_aromatic
     task_type: multi_index
     properties: [ring_index, aromatic_ring_index]
-    num_samples: 1500
+    num_samples: 1300
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10

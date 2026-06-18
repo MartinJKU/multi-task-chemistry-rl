@@ -1,7 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# Path B: run the full 4-stage curriculum (counts -> simple index -> full index
-# -> generation) as ONE job. Produces outputs/miq-curriculum-04-generation.
+# Path B: run the full 5-stage curriculum (counts -> simple index -> full index
+# -> generation -> consolidation) as ONE job. Each stage replays all previously
+# learned tasks and the final consolidation stage revisits all 16 tasks balanced.
+# Produces outputs/miq-curriculum-05-consolidation.
 # Datasets must already be built by slurm/setup_leonardo.sh.
 #
 #   sbatch slurm/curriculum.slurm
@@ -15,7 +17,7 @@
 #SBATCH --gres=gpu:1                     # 0.5B model -> a single A100 is plenty
 #SBATCH --cpus-per-task=8               # 32 cores / 4 GPUs per node
 #SBATCH --mem=64G
-#SBATCH --time=08:00:00
+#SBATCH --time=10:00:00                 # 5 stages x ~1500 steps
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 
