@@ -84,6 +84,7 @@ def evaluate_multitask_main() -> None:
         }
         for key in (
             "partial_score_mean",
+            "distinct_answer_rate",
             "answer_present_rate",
             "json_valid_rate",
             "valid_smiles_rate",

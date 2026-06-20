@@ -119,13 +119,32 @@ def test_moleculariq_shaped_multi_count_averages_keys():
 
 
 def test_moleculariq_shaped_index_overlap():
-    """Verify index tasks receive set-overlap partial credit."""
+    """Verify index tasks receive Jaccard set-overlap partial credit."""
     reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
     completions = [
         _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 9]}</answer>')
     ]
     out = reward(completions=completions, answer=['{"ring_index": [0, 1, 2]}'])
-    assert out == [2 * 2 / 6]
+    # Jaccard: |{0,1}| / |{0,1,2,9}| = 2/4
+    assert out == [2 / 4]
+
+
+def test_shaped_index_jaccard_punishes_overprediction():
+    """Verify dumping a long consecutive list scores low (anti reward-hacking).
+
+    Mirrors the degenerate "{ring_index: [1..N]}" policy seen in training: it has
+    perfect recall but should be punished for over-prediction.
+    """
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    dump = [
+        _conv(
+            "<reasoning>x</reasoning>\n"
+            '<answer>{"ring_index": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}</answer>'
+        )
+    ]
+    out = reward(completions=dump, answer=['{"ring_index": [0, 1, 2]}'])
+    # Jaccard 3/10 = 0.3 (vs Dice/F1 which would reward this ~0.46)
+    assert out[0] == 3 / 10
 
 
 def test_moleculariq_shaped_constraint_valid_smiles_if_rdkit_available():

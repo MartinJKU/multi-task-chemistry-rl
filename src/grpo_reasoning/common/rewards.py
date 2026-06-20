@@ -178,18 +178,25 @@ def _as_int_set(value) -> set[int] | None:
     return out
 
 
-def _index_f1(predicted, target) -> float:
-    """Score predicted atom-index sets with F1 overlap."""
+def _index_jaccard(predicted, target) -> float:
+    """Score predicted atom-index sets with Jaccard overlap (intersection/union).
+
+    Jaccard is used instead of Dice/F1 because it penalizes over-prediction much
+    harder: a molecule-independent "dump 0..N" policy has perfect recall and
+    earns a misleadingly high F1, but its Jaccard is only |gold|/|prediction|.
+    This keeps the partial score honest -- it stays low unless the predicted set
+    is genuinely specific to the molecule.
+    """
     pred = _as_int_set(predicted)
     gold = _as_int_set(target)
     if pred is None or gold is None:
         return 0.0
     if not pred and not gold:
         return 1.0
-    if not pred or not gold:
+    union = len(pred | gold)
+    if union == 0:
         return 0.0
-    overlap = len(pred & gold)
-    return 2.0 * overlap / (len(pred) + len(gold))
+    return len(pred & gold) / union
 
 
 def _verifier_report(
@@ -276,7 +283,7 @@ def _index_graded(report: dict) -> float:
     if not isinstance(details, dict) or not details:
         return 0.0
     scores = [
-        _index_f1(entry.get("predicted"), entry.get("target"))
+        _index_jaccard(entry.get("predicted"), entry.get("target"))
         for entry in details.values()
         if isinstance(entry, dict)
     ]
