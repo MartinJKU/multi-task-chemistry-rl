@@ -275,6 +275,12 @@ python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_mu
 `summary.json` with macro accuracy and worst-task accuracy. That summary is the
 handoff point for adaptive sampling and for later comparison scripts.
 
+Every eval also runs the untrained base model (`Qwen/Qwen2.5-0.5B-Instruct`)
+once as a `baseline` reference, written to `outputs/multitask_eval/baseline/`, so
+every report shows the lift over the base model. It is cached: later eval runs
+reuse it instead of re-evaluating. Control it with `--baseline-model`,
+`--baseline-label`, `--overwrite-baseline`, or `--no-baseline`.
+
 Create a visual report across all discovered train/eval outputs:
 
 ```powershell

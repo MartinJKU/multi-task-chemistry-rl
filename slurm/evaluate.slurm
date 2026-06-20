@@ -4,6 +4,9 @@
 # comparison report/heatmap. Eval regenerates the test set live from
 # moleculariq_core + the cached SMILES pool, so it runs offline on a GPU node.
 #
+# The untrained base model is always evaluated once as a 'baseline' reference
+# (cached in outputs/multitask_eval/baseline), so the report shows lift over it.
+#
 #   sbatch slurm/evaluate.slurm                       # final curriculum model only
 #   EVAL_ALL_STAGES=1 sbatch slurm/evaluate.slurm     # + every stage (forgetting check)
 #
