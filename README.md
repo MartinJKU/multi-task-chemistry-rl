@@ -311,12 +311,15 @@ New evaluation files also include diagnostic partial metrics:
 - `valid_smiles_rate`: fraction with parseable generated SMILES, mainly useful
   for `constraint_generation`.
 
-Index tasks declare difficulty `filters` (and a `candidate_multiplier` for
-over-generation) in their task spec. These are applied identically when building
-the training set **and** when generating the evaluation set, so models are
-scored on the same tractable molecule distribution they were trained on. The
-filters live in the task itself, so single-task eval, multitask eval, and
-curriculum stages all stay aligned.
+Index and constraint-generation tasks declare difficulty `filters` (and a
+`candidate_multiplier` for over-generation) in their task spec: index tasks cap
+the answer-list length, and constraint-generation tasks cap the target value
+(`max_answer_numeric_value`) so an exact-satisfying molecule is actually
+reachable (e.g. carbon_count = N via a chain of N carbons). These are applied
+identically when building the training set **and** when generating the
+evaluation set, so models are scored on the same tractable distribution they
+were trained on. The filters live in the task itself, so single-task eval,
+multitask eval, and curriculum stages all stay aligned.
 
 ## Curriculum training
 

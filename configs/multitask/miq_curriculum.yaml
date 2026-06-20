@@ -274,11 +274,25 @@ stages:
           task_type: constraint_generation
           properties: [ring_count]
           num_samples: 2000
+          candidate_multiplier: 4
+          filters:
+            max_answer_numeric_value: 3
         - task_id: cg_carbon_atom
           task_type: constraint_generation
           properties: [carbon_atom_count]
           num_samples: 2000
+          candidate_multiplier: 4
+          filters:
+            max_answer_numeric_value: 12
     train:
       output_dir: outputs/miq-curriculum-04-generation
       max_steps: 2500
       save_steps: 500
+      # Constraint generation collapses to one safe molecule (benzene) unless the
+      # policy explores and the reward rewards hitting the target over merely
+      # being valid. More generations + higher temperature break the collapse;
+      # property-closeness is weighted above the flat valid-SMILES floor.
+      num_generations: 16
+      temperature: 1.1
+      shaped_moleculariq_weight: 1.5
+      smiles_validity_weight: 0.25
