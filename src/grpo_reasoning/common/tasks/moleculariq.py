@@ -435,6 +435,15 @@ class MolecularIQTask(Task):
         if not extracted:
             return False
 
+        # Require a well-formed JSON object: every task prompt asks for one, and
+        # the verifier's lenient parser would otherwise accept malformed answers
+        # (e.g. a list missing its closing bracket) as correct.
+        try:
+            if not isinstance(json.loads(extracted), dict):
+                return False
+        except (TypeError, json.JSONDecodeError):
+            return False
+
         try:
             if self.task_type == "constraint_generation":
                 score = evaluate_answer(

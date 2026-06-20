@@ -169,6 +169,28 @@ def test_moleculariq_diagnostics_exact_match_on_perfect_answer():
     assert out["partial_score"] == 1.0
 
 
+def test_malformed_json_answer_gets_no_credit():
+    """Verify a malformed JSON answer earns no reward even if the verifier is lenient.
+
+    The model in an earlier run dropped the closing ``]`` (e.g.
+    ``{"ring_index": [1, 2, 3}``); the official verifier still parsed the
+    integers, so without a strict-JSON gate the model could farm partial credit
+    on malformed output. Both the shaped reward and the diagnostics must reject it.
+    """
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    malformed = [
+        _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 2, 3}</answer>')
+    ]
+    out = reward(completions=malformed, answer=['{"ring_index": [0, 1, 2, 3]}'])
+    assert out == [0.0]
+    diag = moleculariq_diagnostics(
+        malformed[0][0]["content"], '{"ring_index": [0, 1, 2, 3]}', "single_index"
+    )
+    assert diag["json_valid"] is False
+    assert diag["exact_match"] == 0.0
+    assert diag["partial_score"] == 0.0
+
+
 def test_shaped_index_partial_is_dense_but_exact_is_zero():
     """Verify a near-miss index answer earns dense credit while exact match fails.
 

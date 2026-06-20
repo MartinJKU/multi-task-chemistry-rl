@@ -205,15 +205,25 @@ def _verifier_report(
         task_type: MolecularIQ task type for this example.
 
     Returns:
-        The verifier's detail dictionary, or None when the answer or gold is
-        missing/unparseable. The dictionary always carries a ``reward`` key (the
-        binary exact-match verdict) plus a ``details`` report with the verifier's
-        own parsed predictions and targets.
+        The verifier's detail dictionary, or None when the answer is missing,
+        not a well-formed JSON object, or the gold is unparseable. The dictionary
+        always carries a ``reward`` key (the binary exact-match verdict) plus a
+        ``details`` report with the verifier's own parsed predictions and targets.
+
+    Note:
+        The model answer must be a strict JSON object (the format every task
+        prompt asks for). The verifier itself tolerates loose formats such as
+        bare ``0,2,3`` strings, but accepting those during training lets the
+        model drift to malformed output (e.g. dropping the closing ``]``), so we
+        require valid JSON here to keep the format pressure that drives clean,
+        parseable answers.
     """
     from moleculariq_core import evaluate_answer
 
     extracted = extract_xml_answer(completion_text)
     if not extracted:
+        return None
+    if not isinstance(_parse_json(extracted), dict):
         return None
     target = _parse_json(gold_answer)
     if target is None:
