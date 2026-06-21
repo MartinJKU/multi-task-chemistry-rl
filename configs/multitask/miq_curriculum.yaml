@@ -52,6 +52,9 @@ stages:
       output_dir: outputs/miq-curriculum-01-counts
       max_steps: 2500
       save_steps: 500
+      # 8 (not the default 4) for lower-variance GRPO advantage estimates on the
+      # foundational counting stage; batch (bsz*accum) stays divisible by it.
+      num_generations: 8
 
   - name: 02_simple_index
     dataset:
@@ -135,6 +138,7 @@ stages:
       output_dir: outputs/miq-curriculum-02-simple-index
       max_steps: 3000
       save_steps: 500
+      num_generations: 8
 
   - name: 03_full_index
     dataset:
@@ -215,6 +219,7 @@ stages:
       output_dir: outputs/miq-curriculum-03-full-index
       max_steps: 3000
       save_steps: 500
+      num_generations: 8
 
   - name: 04_generation
     dataset:
