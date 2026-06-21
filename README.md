@@ -347,10 +347,20 @@ the explicit configs above are the recommended experiment interface.
 
 ## Scaling up later
 
-When you move to a larger Linux box with enough VRAM:
+The multitask train configs are already set up for a GPU box: they enable vLLM
+colocate generation in `grpo_overrides` and use `num_generations: 8` /
+`per_device_train_batch_size: 8`. For a ready-to-submit CINECA Leonardo
+(Booster, 4x A100) job, see `scripts/leonardo/` (SLURM launcher + setup notes,
+including the batch/group divisibility rule and offline pre-caching).
 
-- Set `use_vllm: true` in `grpo_overrides` in the YAML, plus `vllm_mode: colocate`.
-- Bump `num_generations` and `per_device_train_batch_size`.
+For local CPU/Windows smoke tests, comment out the `grpo_overrides` block in the
+config (vLLM is unavailable there). The single-task configs still default to the
+small, vLLM-free settings.
+
+Further knobs when you have more VRAM:
+
+- Bump `num_generations` further (request >=2 GPUs so it keeps dividing the
+  effective batch) and/or `per_device_train_batch_size`.
 - Optionally add `attn_implementation: flash_attention_2` in `model_init_kwargs`.
 
 ## Tests

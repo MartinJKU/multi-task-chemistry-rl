@@ -7,11 +7,12 @@ moleculariq_task_type: single_index
 
 learning_rate: 1.0e-5
 beta: 0.005
-num_generations: 4
-per_device_train_batch_size: 4
+num_generations: 8   # GRPO group size; must evenly divide the effective train
+                     # batch (per_device_train_batch_size * num_gpus * grad_accum).
+per_device_train_batch_size: 8
 gradient_accumulation_steps: 4
 max_prompt_length: 384
-max_completion_length: 384
+max_completion_length: 512
 num_train_epochs: 1
 max_steps: 3000
 warmup_ratio: 0.1
@@ -33,3 +34,12 @@ shaped_moleculariq_weight: 1.0
 smiles_validity_weight: 0.5
 resume_from_checkpoint:
 save_on_interrupt: true
+
+# vLLM-accelerated generation. Linux + NVIDIA GPU only (e.g. CINECA Leonardo).
+# These keys are merged into the TRL GRPOConfig (see common/train.py). For local
+# CPU/Windows smoke tests, comment this block out (vLLM is unavailable there).
+grpo_overrides:
+  use_vllm: true
+  vllm_mode: colocate
+  scale_rewards: false   # Dr.GRPO-style: scale advantage by a constant instead of
+                         # the per-group std; steadier with small num_generations.
