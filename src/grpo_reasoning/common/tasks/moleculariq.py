@@ -51,13 +51,83 @@ _FEW_SHOT_EXAMPLES: dict[str, tuple[str, str]] = {
         ' "ring_index": [0, 1, 2, 3, 4, 5]}</answer>',
     ),
     "constraint_generation": (
-        'Generate a molecule where ring_count = 1. Return JSON with key "smiles"'
-        " containing a valid SMILES string.",
-        "<reasoning>I need any molecule with exactly 1 ring. Benzene (c1ccccc1)"
-        " satisfies ring_count = 1.</reasoning>\n"
-        '<answer>{"smiles": "c1ccccc1"}</answer>',
+        'Generate a molecule where carbon_atom_count = 5. Return JSON with key'
+        ' "smiles" containing a valid SMILES string.',
+        "<reasoning>I must build a molecule with exactly 5 carbon atoms. A simple"
+        " pentane chain, written CCCCC, has 5 carbons, so it satisfies"
+        " carbon_atom_count = 5.</reasoning>\n"
+        '<answer>{"smiles": "CCCCC"}</answer>',
     ),
 }
+
+
+def _flatten_answer_values(value) -> list:
+    """Flatten nested JSON answer values for simple filter checks."""
+    if isinstance(value, dict):
+        out: list = []
+        for item in value.values():
+            out.extend(_flatten_answer_values(item))
+        return out
+    if isinstance(value, list):
+        out = [value]
+        for item in value:
+            out.extend(_flatten_answer_values(item))
+        return out
+    return [value]
+
+
+def answer_passes_filters(answer: str, filters: dict) -> bool:
+    """Check JSON-answer constraints used to keep tasks tractable.
+
+    Args:
+        answer: JSON-encoded gold answer.
+        filters: Mapping of supported filter names to thresholds.
+
+    Returns:
+        True when the answer satisfies every configured answer filter.
+    """
+    try:
+        parsed = json.loads(answer)
+    except (TypeError, json.JSONDecodeError):
+        return False
+
+    values = _flatten_answer_values(parsed)
+    lists = [value for value in values if isinstance(value, list)]
+    numbers = [
+        float(value)
+        for value in values
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+
+    max_list_len = filters.get("max_answer_list_length")
+    if max_list_len is not None and any(len(items) > int(max_list_len) for items in lists):
+        return False
+
+    min_list_len = filters.get("min_answer_list_length")
+    if min_list_len is not None and lists and any(len(items) < int(min_list_len) for items in lists):
+        return False
+
+    if filters.get("require_nonempty_list") and lists and not any(lists):
+        return False
+
+    max_numeric = filters.get("max_answer_numeric_value")
+    if max_numeric is not None and any(abs(value) > float(max_numeric) for value in numbers):
+        return False
+
+    return True
+
+
+def row_passes_filters(smiles: str, question: str, answer: str, filters: dict) -> bool:
+    """Check whether one generated example satisfies the task filters."""
+    max_smiles_len = filters.get("max_smiles_length")
+    if max_smiles_len is not None and len(smiles or "") > int(max_smiles_len):
+        return False
+
+    max_question_len = filters.get("max_question_length")
+    if max_question_len is not None and len(question or "") > int(max_question_len):
+        return False
+
+    return answer_passes_filters(answer or "", filters)
 
 
 def _format_instructions(task_type: str, system_prompt_style: str) -> str:
@@ -111,6 +181,10 @@ class MolecularIQTask(Task):
         constraint_operator: Operator used for constraint generation tasks.
         seed: Random seed for raw-data shuffling and MolecularIQD.
         system_prompt_style: MolecularIQD system prompt style.
+        filters: Optional difficulty filters applied to generated examples in
+            both training and evaluation (e.g. max_answer_list_length).
+        candidate_multiplier: Over-generation factor used before filtering so
+            enough examples survive to reach num_samples.
         _repo: Hugging Face dataset repository for the SMILES pool.
     """
 
@@ -123,6 +197,9 @@ class MolecularIQTask(Task):
 
     seed: int = 42
     system_prompt_style: str = "with_key_hints"
+
+    filters: dict | None = None
+    candidate_multiplier: int = 1
 
     _repo: str = "ml-jku/moleculariq-trainPool"
 
@@ -280,8 +357,15 @@ class MolecularIQTask(Task):
         if split == "test":
             tail_size = min(2000, len(raw))
             raw = raw.select(range(len(raw) - tail_size, len(raw)))
-        if num_samples is not None:
-            raw = raw.select(range(min(num_samples, len(raw))))
+
+        # When filters are active, over-generate a candidate pool so enough
+        # examples survive filtering to reach num_samples. The same filtering is
+        # applied here for both train and eval, keeping their difficulty aligned.
+        candidate_samples = num_samples
+        if num_samples is not None and self.filters:
+            candidate_samples = num_samples * max(1, self.candidate_multiplier)
+        if candidate_samples is not None:
+            raw = raw.select(range(min(candidate_samples, len(raw))))
 
         mqd = self._make_generator()
 
@@ -289,6 +373,7 @@ class MolecularIQTask(Task):
         answers: list[str] = []
         smiles_kept: list[str] = []
         n_skipped = 0
+        n_filtered = 0
         for row in raw:
             smi = row.get("smiles") or ""
             if not smi:
@@ -298,13 +383,25 @@ class MolecularIQTask(Task):
                 n_skipped += 1
                 continue
             q, a = qa
+            if self.filters and not row_passes_filters(smi, q, a, self.filters):
+                n_filtered += 1
+                continue
             questions.append(q)
             answers.append(a)
             smiles_kept.append(smi)
+            if num_samples is not None and len(questions) >= num_samples:
+                break
 
-        if n_skipped:
+        if n_skipped or n_filtered:
             print(
-                f"[dataset] {n_skipped} SMILES skipped (generation failed); kept {len(questions)}"
+                f"[dataset] {n_skipped} SMILES skipped (generation failed), "
+                f"{n_filtered} removed by filters; kept {len(questions)}"
+            )
+        if self.filters and not questions:
+            raise ValueError(
+                f"Filters {self.filters} removed all generated examples for "
+                f"task_type={self.task_type!r}; relax the filters or raise "
+                "candidate_multiplier."
             )
         prompts = [self.build_prompt(q) for q in questions]
         return Dataset.from_dict(
@@ -337,6 +434,15 @@ class MolecularIQTask(Task):
 
         extracted = extract_xml_answer(prediction_text)
         if not extracted:
+            return False
+
+        # Require a well-formed JSON object: every task prompt asks for one, and
+        # the verifier's lenient parser would otherwise accept malformed answers
+        # (e.g. a list missing its closing bracket) as correct.
+        try:
+            if not isinstance(json.loads(extracted), dict):
+                return False
+        except (TypeError, json.JSONDecodeError):
             return False
 
         try:

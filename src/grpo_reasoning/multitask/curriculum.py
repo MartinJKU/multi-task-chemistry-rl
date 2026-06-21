@@ -73,6 +73,7 @@ def run_curriculum(
     start_stage: str | None = None,
     dataset_only: bool = False,
     max_steps_per_stage: int | None = None,
+    base_train_config: str | None = None,
 ) -> str | None:
     """Build datasets and train stages sequentially.
 
@@ -86,7 +87,7 @@ def run_curriculum(
     Returns:
         Final stage output directory, or None when `dataset_only` is true.
     """
-    base_train = load_yaml(cfg.base_train_config)
+    base_train = load_yaml(base_train_config or cfg.base_train_config)
     rebuild = cfg.overwrite_datasets if overwrite_datasets is None else overwrite_datasets
 
     stages = list(cfg.stages)
@@ -101,7 +102,13 @@ def run_curriculum(
     for index, stage in enumerate(stages):
         print(f"\n[curriculum] stage {index + 1}/{len(stages)}: {stage.name}")
         ds_cfg = MultitaskDatasetConfig.from_dict(stage.dataset)
-        dataset_path = build_and_save_multitask(ds_cfg, overwrite=rebuild)
+        out_dir = Path(ds_cfg.out_dir)
+        if out_dir.exists() and not rebuild:
+            # Datasets were pre-built (e.g. on a login node); reuse them.
+            print(f"[curriculum] reusing existing dataset at {out_dir}")
+            dataset_path: Path | str = out_dir
+        else:
+            dataset_path = build_and_save_multitask(ds_cfg, overwrite=rebuild)
 
         if dataset_only:
             continue
@@ -134,6 +141,7 @@ def run_curriculum_from_file(
     start_stage: str | None = None,
     dataset_only: bool = False,
     max_steps_per_stage: int | None = None,
+    base_train_config: str | None = None,
 ) -> str | None:
     """Load and run a curriculum YAML file."""
     cfg = CurriculumConfig.from_dict(load_yaml(path))
@@ -143,4 +151,5 @@ def run_curriculum_from_file(
         start_stage=start_stage,
         dataset_only=dataset_only,
         max_steps_per_stage=max_steps_per_stage,
+        base_train_config=base_train_config,
     )

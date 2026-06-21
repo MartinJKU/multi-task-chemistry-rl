@@ -1,5 +1,7 @@
 task_name: moleculariq
-model_name: Qwen/Qwen2.5-0.5B-Instruct
+# Warm-start from the counts-pretrained checkpoint (configs/multitask/miq_curriculum_01_counts_train.yaml)
+# so the model already has output-format + counting competence before tackling index/generation.
+model_name: outputs/miq-curriculum-01-counts
 dataset_path: data/miq_multitask_pooled_train
 output_dir: outputs/miq-multitask-pooled-grpo
 
@@ -26,7 +28,7 @@ logging_steps: 1
 save_steps: 100
 bf16: true
 gradient_checkpointing: true
-optim: adamw_8bit
+optim: adamw_torch
 
 use_soft_format_reward: true
 correctness_weight: 2.0

@@ -109,10 +109,16 @@ def evaluate(
             results.append(row)
 
     total = len(results)
+    distinct_answers = len({row["extracted"] for row in results if row["extracted"]})
     metrics = {
         "accuracy": correct / total if total else 0.0,
         "correct": correct,
         "total": total,
+        # Fraction of unique extracted answers. A value near 0 means the model
+        # collapsed to a (near) molecule-independent output -- the tell-tale sign
+        # of reward-hacking on set-valued tasks rather than real per-molecule
+        # reasoning.
+        "distinct_answer_rate": distinct_answers / total if total else 0.0,
         "model_path": str(model_path),
         "task": task_name,
         "timestamp": datetime.now().isoformat(timespec="seconds"),

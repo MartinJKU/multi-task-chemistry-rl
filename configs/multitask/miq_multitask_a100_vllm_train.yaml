@@ -1,0 +1,58 @@
+task_name: moleculariq
+# Curriculum overrides model_name per stage; default for standalone use.
+model_name: outputs/miq-curriculum-01-counts
+dataset_path: data/miq_multitask_balanced_train
+output_dir: outputs/miq-multitask-a100-vllm-grpo
+
+moleculariq_task_type: single_count
+
+learning_rate: 1.0e-5
+beta: 0.005
+
+# --- A100 throughput tuning (see miq_multitask_a100_train.yaml) ---------------
+# Training is memory-bound on full-vocab logits, so keep checkpointing on even
+# though vLLM offloads generation. vLLM also reserves part of the GPU
+# (vllm_gpu_memory_utilization below), leaving less for training -> keep batch
+# modest.
+num_generations: 8
+per_device_train_batch_size: 24
+gradient_accumulation_steps: 1
+gradient_checkpointing: true
+
+# --- vLLM generation backend -------------------------------------------------
+# EXPERIMENTAL. Requires the separate, newer-stack vLLM venv built by
+# slurm/setup_vllm.sh (vllm + trl>=0.17 + matching transformers/torch). vLLM
+# gives 5-20x faster generation, the real win on A100. Submit with
+# slurm/curriculum_vllm.slurm (single GPU; vLLM colocates with training).
+#
+# NOTE: the exact vLLM flag names depend on the installed trl version. The
+# colocate keys below match trl >=0.18; if your trl errors on an unknown key,
+# check `python -c "from trl import GRPOConfig; help(GRPOConfig)"` and adjust.
+grpo_overrides:
+  use_vllm: true
+  vllm_mode: "colocate"
+  vllm_gpu_memory_utilization: 0.3   # leave the rest of the 64 GB for training
+# -----------------------------------------------------------------------------
+
+max_prompt_length: 384
+max_completion_length: 384
+num_train_epochs: 1
+max_steps: -1
+warmup_ratio: 0.1
+weight_decay: 0.1
+max_grad_norm: 0.1
+lr_scheduler_type: cosine
+
+seed: 42
+logging_steps: 1
+save_steps: 500
+bf16: true
+optim: adamw_torch
+
+use_soft_format_reward: true
+correctness_weight: 2.0
+use_shaped_moleculariq_reward: true
+shaped_moleculariq_weight: 1.0
+smiles_validity_weight: 0.5
+resume_from_checkpoint:
+save_on_interrupt: true

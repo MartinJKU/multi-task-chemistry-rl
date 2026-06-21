@@ -1,0 +1,40 @@
+# Dependency constraints for Leonardo installs.
+#
+# Keep PyTorch installed separately from setup_leonardo.sh so the CUDA wheel
+# index can be selected explicitly for the cluster driver.
+#
+# TRL 0.16.x is the API line used by src/grpo_reasoning/common/train.py.
+# transformers 4.50 changed Trainer sampler internals in a way that breaks
+# TRL 0.16's GRPOTrainer override, so keep the pair together.
+transformers==4.49.0
+trl==0.16.1
+
+# Keep NumPy 1.x for broad binary-wheel compatibility with chemistry and
+# plotting dependencies on the RHEL 8 Leonardo environment.
+numpy==1.26.4
+
+# Stable companion packages for the pinned TRL/Transformers line.
+#
+# datasets must be >=4.0.0: the ml-jku/moleculariq-trainPool pool is now
+# published with the `List` feature type, which was introduced in datasets
+# 4.0.0 (2025-07-09). Older 3.x releases (e.g. 3.3.2) cannot parse it and
+# fail in DatasetInfo.from_directory with the misleading
+#   TypeError: must be called with a dataclass type or instance
+# (they resolve the unknown "List" feature name to typing.List, which is not
+# a dataclass). 4.0.0 is the minimum that understands `List`; TRL 0.16.1 only
+# requires datasets>=2.21.0, so this stays compatible with the pinned stack.
+datasets==4.0.0
+# datasets 4.0.0 requires pyarrow>=15; 19.0.1 satisfies that. Keep it pinned
+# for a reproducible Arrow ABI on the RHEL 8 Leonardo environment.
+pyarrow==19.0.1
+accelerate==1.4.0
+peft==0.14.0
+# bitsandbytes is intentionally NOT installed on Leonardo (see setup_leonardo.sh):
+# its 0.45.x CUDA library needs GLIBC_2.34 but RHEL 8 only has glibc 2.28, so the
+# 8-bit optimizer cannot load. Configs use optim: adamw_torch instead. This
+# constraint only applies if something else pulls bitsandbytes in.
+bitsandbytes==0.45.3
+matplotlib==3.10.0
+pyyaml==6.0.2
+tqdm==4.67.1
+pytest==8.3.5

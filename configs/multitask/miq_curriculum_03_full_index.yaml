@@ -5,37 +5,80 @@ seed: 44
 shuffle: true
 
 tasks:
+  # Replay counts and earlier index tasks so they are not forgotten.
   - task_id: sc_ring_count_replay
     task_type: single_count
     properties: [ring_count]
-    num_samples: 500
+    num_samples: 250
+
+  - task_id: sc_aromatic_ring_replay
+    task_type: single_count
+    properties: [aromatic_ring_count]
+    num_samples: 250
+
+  - task_id: sc_fused_ring_replay
+    task_type: single_count
+    properties: [fused_ring_count]
+    num_samples: 250
+
+  - task_id: sc_carbon_atom_replay
+    task_type: single_count
+    properties: [carbon_atom_count]
+    num_samples: 250
 
   - task_id: mc_topology_replay
     task_type: multi_count
     properties: [ring_count, aromatic_ring_count, fused_ring_count]
-    num_samples: 500
+    num_samples: 250
 
+  - task_id: mc_composition_replay
+    task_type: multi_count
+    properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+    num_samples: 250
+
+  # Index tasks share the eval-time tractability filters so training and
+  # evaluation see the same distribution.
   - task_id: si_ring
     task_type: single_index
     properties: [ring_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_aromatic_ring
     task_type: single_index
     properties: [aromatic_ring_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: si_carbon_atom
     task_type: single_index
     properties: [carbon_atom_index]
     num_samples: 1500
+    candidate_multiplier: 8
+    filters:
+      max_smiles_length: 70
+      max_answer_list_length: 18
 
   - task_id: si_hetero_atom
     task_type: single_index
     properties: [hetero_atom_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
 
   - task_id: mi_ring_aromatic
     task_type: multi_index
     properties: [ring_index, aromatic_ring_index]
     num_samples: 1500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10

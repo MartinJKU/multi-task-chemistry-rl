@@ -65,15 +65,18 @@ tests/                     Reward and multitask sanity tests
 ## Setup
 
 ```powershell
-# 1) Install PyTorch with CUDA matching your driver. Example: CUDA 12.1
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+# 1) Install PyTorch with CUDA matching your driver. Example: CUDA 12.6
+pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu126
 
 # 2) Install the project runtime, chemistry, optimizer, and test extras
 pip install -r requirements.txt
 ```
 
-`bitsandbytes` provides the 8-bit AdamW optimizer used by default. If install
-fails on Windows, switch `optim: adamw_torch` in the YAML.
+The configs use `optim: adamw_torch` by default for broad compatibility.
+`bitsandbytes` (the `[bnb]` extra) provides an optional 8-bit AdamW optimizer;
+where it loads cleanly you can set `optim: adamw_8bit` in the YAML to save
+optimizer memory. It will not load on platforms with glibc < 2.34 (e.g. RHEL 8)
+or on Windows.
 
 After installation the workflows are available either through the script
 wrappers shown below or through console commands:
@@ -86,6 +89,18 @@ wrappers shown below or through console commands:
 
 If you OOM, reduce `max_completion_length` first, then `num_generations`, then
 `per_device_train_batch_size`.
+
+For Leonardo, prefer the dedicated setup script instead of the generic commands
+above:
+
+```bash
+bash slurm/setup_leonardo.sh
+```
+
+It creates a clean venv in `$WORK/venvs/grpo`, installs the constrained
+TRL/Transformers stack from `slurm/constraints-leonardo.txt`, installs PyTorch
+from the configured CUDA wheel index, runs `pip check`, and pre-caches the model
+and datasets for offline compute nodes.
 
 ## Pause and resume training
 
@@ -186,11 +201,15 @@ Scoring uses `moleculariq_core.evaluate_answer`, which tolerates property-name
 aliases and JSON formatting variations; the format reward still enforces the
 R1 `<reasoning>...</reasoning>\n<answer>...</answer>` scaffold.
 
-Training also includes a shaped MolecularIQ reward by default. Exact correctness
-is still rewarded separately, but count tasks get numeric-closeness partial
-credit, index tasks get atom-set overlap credit, and constraint-generation tasks
-get valid-SMILES credit plus property-closeness credit for supported RDKit
-properties.
+The official verifier is the single source of truth for both the exact-match
+verdict and the dense partial-credit signal. Every score comes from one
+`evaluate_answer(..., return_details=True)` call, so shaping can never diverge
+from how correctness is judged: the exact reward/metric is the verifier's binary
+`reward`, while the shaped reward derives partial credit from the verifier's own
+parsed `details` — numeric closeness for count tasks, atom-set F1 overlap for
+index tasks, and per-constraint satisfaction plus valid-SMILES credit for
+constraint generation. The dense signal is what lets GRPO learn hard set-valued
+index tasks even though exact-match credit is all-or-nothing.
 
 ### Automated specialist comparison
 
@@ -256,6 +275,12 @@ python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_mu
 `summary.json` with macro accuracy and worst-task accuracy. That summary is the
 handoff point for adaptive sampling and for later comparison scripts.
 
+Every eval also runs the untrained base model (`Qwen/Qwen2.5-0.5B-Instruct`)
+once as a `baseline` reference, written to `outputs/multitask_eval/baseline/`, so
+every report shows the lift over the base model. It is cached: later eval runs
+reuse it instead of re-evaluating. Control it with `--baseline-model`,
+`--baseline-label`, `--overwrite-baseline`, or `--no-baseline`.
+
 Create a visual report across all discovered train/eval outputs:
 
 ```powershell
@@ -277,11 +302,31 @@ latest checkpoint under each output folder, reads model summaries from
 
 New evaluation files also include diagnostic partial metrics:
 
-- `partial_score_mean`: shaped partial score before exact-match thresholding.
+- `partial_score_mean`: verifier-derived partial score before exact-match
+  thresholding (numeric closeness, index Jaccard overlap, or constraint
+  satisfaction). For set-valued index tasks this is the more informative signal,
+  since exact-match accuracy stays low even when the model is mostly right.
+- `distinct_answer_rate`: fraction of unique extracted answers. This is a
+  *collapse signal for index tasks only* — there every molecule has its own atom
+  set, so a healthy model approaches ~1.0 and a near-zero value means the policy
+  collapsed to a molecule-independent guess. Do NOT read it this way for counts
+  or constraint generation: those have a tiny discrete target space (a few
+  integer values), so even a perfect model repeats answers and the rate is
+  naturally low. Use exact-match accuracy for those.
 - `answer_present_rate`: fraction of completions with `<answer>...</answer>`.
 - `json_valid_rate`: fraction of extracted answers that parse as JSON.
 - `valid_smiles_rate`: fraction with parseable generated SMILES, mainly useful
   for `constraint_generation`.
+
+Index and constraint-generation tasks declare difficulty `filters` (and a
+`candidate_multiplier` for over-generation) in their task spec: index tasks cap
+the answer-list length, and constraint-generation tasks cap the target value
+(`max_answer_numeric_value`) so an exact-satisfying molecule is actually
+reachable (e.g. carbon_count = N via a chain of N carbons). These are applied
+identically when building the training set **and** when generating the
+evaluation set, so models are scored on the same tractable distribution they
+were trained on. The filters live in the task itself, so single-task eval,
+multitask eval, and curriculum stages all stay aligned.
 
 ## Curriculum training
 
