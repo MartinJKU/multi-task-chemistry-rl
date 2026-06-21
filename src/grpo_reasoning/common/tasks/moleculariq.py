@@ -51,11 +51,12 @@ _FEW_SHOT_EXAMPLES: dict[str, tuple[str, str]] = {
         ' "ring_index": [0, 1, 2, 3, 4, 5]}</answer>',
     ),
     "constraint_generation": (
-        'Generate a molecule where ring_count = 1. Return JSON with key "smiles"'
-        " containing a valid SMILES string.",
-        "<reasoning>I need any molecule with exactly 1 ring. Benzene (c1ccccc1)"
-        " satisfies ring_count = 1.</reasoning>\n"
-        '<answer>{"smiles": "c1ccccc1"}</answer>',
+        'Generate a molecule where carbon_atom_count = 5. Return JSON with key'
+        ' "smiles" containing a valid SMILES string.',
+        "<reasoning>I must build a molecule with exactly 5 carbon atoms. A simple"
+        " pentane chain, written CCCCC, has 5 carbons, so it satisfies"
+        " carbon_atom_count = 5.</reasoning>\n"
+        '<answer>{"smiles": "CCCCC"}</answer>',
     ),
 }
 
