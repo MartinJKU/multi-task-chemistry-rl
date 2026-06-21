@@ -303,9 +303,16 @@ latest checkpoint under each output folder, reads model summaries from
 New evaluation files also include diagnostic partial metrics:
 
 - `partial_score_mean`: verifier-derived partial score before exact-match
-  thresholding (numeric closeness, index F1, or constraint satisfaction). For
-  set-valued index tasks this is the more informative signal, since exact-match
-  accuracy stays low even when the model is mostly right.
+  thresholding (numeric closeness, index Jaccard overlap, or constraint
+  satisfaction). For set-valued index tasks this is the more informative signal,
+  since exact-match accuracy stays low even when the model is mostly right.
+- `distinct_answer_rate`: fraction of unique extracted answers. This is a
+  *collapse signal for index tasks only* — there every molecule has its own atom
+  set, so a healthy model approaches ~1.0 and a near-zero value means the policy
+  collapsed to a molecule-independent guess. Do NOT read it this way for counts
+  or constraint generation: those have a tiny discrete target space (a few
+  integer values), so even a perfect model repeats answers and the rate is
+  naturally low. Use exact-match accuracy for those.
 - `answer_present_rate`: fraction of completions with `<answer>...</answer>`.
 - `json_valid_rate`: fraction of extracted answers that parse as JSON.
 - `valid_smiles_rate`: fraction with parseable generated SMILES, mainly useful
