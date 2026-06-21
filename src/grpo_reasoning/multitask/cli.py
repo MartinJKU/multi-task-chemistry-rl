@@ -36,7 +36,11 @@ def preprocess_multitask_main() -> None:
 
 
 def evaluate_multitask_main() -> None:
-    """Evaluate one model on every task in a multitask config."""
+    """Evaluate one model on every task in a multitask config.
+
+    Always also evaluates the untrained base model as a ``baseline`` reference
+    (once, cached) so every report shows the lift over the base model.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
     p.add_argument("--model", required=True)
@@ -45,6 +49,26 @@ def evaluate_multitask_main() -> None:
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--max-new-tokens", type=int, default=512)
     p.add_argument("--out-dir", default="outputs/multitask_eval")
+    p.add_argument(
+        "--baseline-model",
+        default="Qwen/Qwen2.5-0.5B-Instruct",
+        help="Untrained reference model evaluated alongside the target model.",
+    )
+    p.add_argument(
+        "--baseline-label",
+        default="baseline",
+        help="Label/subfolder used for the baseline eval.",
+    )
+    p.add_argument(
+        "--no-baseline",
+        action="store_true",
+        help="Skip the baseline reference eval.",
+    )
+    p.add_argument(
+        "--overwrite-baseline",
+        action="store_true",
+        help="Re-run the baseline eval even if its summary.json already exists.",
+    )
     args = p.parse_args()
 
     import gc
@@ -58,64 +82,90 @@ def evaluate_multitask_main() -> None:
     from .dataset import MultitaskDatasetConfig
 
     cfg = MultitaskDatasetConfig.from_dict(load_yaml(args.config))
-    label = args.model_label or Path(args.model).name.replace("/", "_")
-    out_dir = Path(args.out_dir) / label
-    out_dir.mkdir(parents=True, exist_ok=True)
+    eval_root = Path(args.out_dir)
 
-    task_results = []
-    for spec in cfg.tasks:
-        print(f"\n=== Eval {label}: {spec.task_id} ===")
-        metrics = evaluate(
-            model_path=args.model,
-            task_name="moleculariq",
-            num_samples=args.num_samples,
-            batch_size=args.batch_size,
-            max_new_tokens=args.max_new_tokens,
-            save_path=out_dir / f"{spec.task_id}_eval.json",
-            task_kwargs=spec.task_kwargs(default_seed=cfg.seed),
-        )
-        task_row = {
-            "task_id": spec.task_id,
-            "task_type": spec.task_type,
-            "properties": list(spec.properties),
-            "accuracy": metrics["accuracy"],
-            "correct": metrics["correct"],
-            "total": metrics["total"],
+    def _evaluate_model(model_path: str, label: str) -> dict:
+        """Evaluate one model on every config task and write its summary."""
+        out_dir = eval_root / label
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        task_results = []
+        for spec in cfg.tasks:
+            print(f"\n=== Eval {label}: {spec.task_id} ===")
+            metrics = evaluate(
+                model_path=model_path,
+                task_name="moleculariq",
+                num_samples=args.num_samples,
+                batch_size=args.batch_size,
+                max_new_tokens=args.max_new_tokens,
+                save_path=out_dir / f"{spec.task_id}_eval.json",
+                task_kwargs=spec.task_kwargs(default_seed=cfg.seed),
+            )
+            task_row = {
+                "task_id": spec.task_id,
+                "task_type": spec.task_type,
+                "properties": list(spec.properties),
+                "accuracy": metrics["accuracy"],
+                "correct": metrics["correct"],
+                "total": metrics["total"],
+            }
+            for key in (
+                "partial_score_mean",
+                "distinct_answer_rate",
+                "answer_present_rate",
+                "json_valid_rate",
+                "valid_smiles_rate",
+            ):
+                if key in metrics:
+                    task_row[key] = metrics[key]
+            task_results.append(task_row)
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        accuracies = [row["accuracy"] for row in task_results]
+        summary = {
+            "model_label": label,
+            "model_path": model_path,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "macro_accuracy": sum(accuracies) / len(accuracies) if accuracies else 0.0,
+            "worst_task_accuracy": min(accuracies) if accuracies else 0.0,
+            "tasks": task_results,
         }
-        for key in (
-            "partial_score_mean",
-            "answer_present_rate",
-            "json_valid_rate",
-            "valid_smiles_rate",
-        ):
-            if key in metrics:
-                task_row[key] = metrics[key]
-        task_results.append(task_row)
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        partial_scores = [
+            row["partial_score_mean"]
+            for row in task_results
+            if "partial_score_mean" in row
+        ]
+        if partial_scores:
+            summary["macro_partial_score"] = sum(partial_scores) / len(partial_scores)
+        summary_path = out_dir / "summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print(f"\n[multitask-eval] wrote {summary_path}")
+        print(f"[multitask-eval] {label}: macro accuracy = {summary['macro_accuracy']:.2%}")
+        print(f"[multitask-eval] {label}: worst task     = {summary['worst_task_accuracy']:.2%}")
+        return summary
 
-    accuracies = [row["accuracy"] for row in task_results]
-    summary = {
-        "model_label": label,
-        "model_path": args.model,
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "macro_accuracy": sum(accuracies) / len(accuracies) if accuracies else 0.0,
-        "worst_task_accuracy": min(accuracies) if accuracies else 0.0,
-        "tasks": task_results,
-    }
-    partial_scores = [
-        row["partial_score_mean"]
-        for row in task_results
-        if "partial_score_mean" in row
-    ]
-    if partial_scores:
-        summary["macro_partial_score"] = sum(partial_scores) / len(partial_scores)
-    summary_path = out_dir / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"\n[multitask-eval] wrote {summary_path}")
-    print(f"[multitask-eval] macro accuracy = {summary['macro_accuracy']:.2%}")
-    print(f"[multitask-eval] worst task     = {summary['worst_task_accuracy']:.2%}")
+    # Baseline first so the reference exists even if the target eval is interrupted.
+    # Skip when it is the same model, already cached, or explicitly disabled.
+    if (
+        not args.no_baseline
+        and args.baseline_label != (args.model_label or "")
+        and Path(args.baseline_model) != Path(args.model)
+    ):
+        baseline_summary = eval_root / args.baseline_label / "summary.json"
+        if baseline_summary.exists() and not args.overwrite_baseline:
+            print(
+                f"[multitask-eval] baseline already evaluated at {baseline_summary} "
+                "(use --overwrite-baseline to redo)"
+            )
+        else:
+            print(f"\n[multitask-eval] === baseline reference: {args.baseline_model} ===")
+            _evaluate_model(args.baseline_model, args.baseline_label)
+
+    label = args.model_label or Path(args.model).name.replace("/", "_")
+    _evaluate_model(args.model, label)
+
 
 
 def curriculum_main() -> None:

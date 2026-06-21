@@ -98,12 +98,20 @@ tasks:
       max_smiles_length: 90
       max_answer_list_length: 10
 
+  # Targets are capped to reachable values so exact satisfaction is achievable
+  # (e.g. carbon_count = N via a chain of N carbons). Applied to train and eval.
   - task_id: cg_ring_count
     task_type: constraint_generation
     properties: [ring_count]
     num_samples: 1500
+    candidate_multiplier: 4
+    filters:
+      max_answer_numeric_value: 3
 
   - task_id: cg_carbon_atom
     task_type: constraint_generation
     properties: [carbon_atom_count]
     num_samples: 1500
+    candidate_multiplier: 4
+    filters:
+      max_answer_numeric_value: 12

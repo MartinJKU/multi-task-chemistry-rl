@@ -119,13 +119,32 @@ def test_moleculariq_shaped_multi_count_averages_keys():
 
 
 def test_moleculariq_shaped_index_overlap():
-    """Verify index tasks receive set-overlap partial credit."""
+    """Verify index tasks receive Jaccard set-overlap partial credit."""
     reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
     completions = [
         _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 9]}</answer>')
     ]
     out = reward(completions=completions, answer=['{"ring_index": [0, 1, 2]}'])
-    assert out == [2 * 2 / 6]
+    # Jaccard: |{0,1}| / |{0,1,2,9}| = 2/4
+    assert out == [2 / 4]
+
+
+def test_shaped_index_jaccard_punishes_overprediction():
+    """Verify dumping a long consecutive list scores low (anti reward-hacking).
+
+    Mirrors the degenerate "{ring_index: [1..N]}" policy seen in training: it has
+    perfect recall but should be punished for over-prediction.
+    """
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    dump = [
+        _conv(
+            "<reasoning>x</reasoning>\n"
+            '<answer>{"ring_index": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}</answer>'
+        )
+    ]
+    out = reward(completions=dump, answer=['{"ring_index": [0, 1, 2]}'])
+    # Jaccard 3/10 = 0.3 (vs Dice/F1 which would reward this ~0.46)
+    assert out[0] == 3 / 10
 
 
 def test_moleculariq_shaped_constraint_valid_smiles_if_rdkit_available():
@@ -157,3 +176,51 @@ def test_moleculariq_diagnostics_reports_partial_score():
     assert out["answer_present"] is True
     assert out["json_valid"] is True
     assert 0.8 < out["partial_score"] < 0.9
+    # Exact-match verdict and partial credit come from the same verifier call.
+    assert out["exact_match"] == 0.0
+
+
+def test_moleculariq_diagnostics_exact_match_on_perfect_answer():
+    """Verify a perfect index answer reports exact_match=1.0 and partial=1.0."""
+    completion = '<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 2]}</answer>'
+    out = moleculariq_diagnostics(completion, '{"ring_index": [0, 1, 2]}', "single_index")
+    assert out["exact_match"] == 1.0
+    assert out["partial_score"] == 1.0
+
+
+def test_malformed_json_answer_gets_no_credit():
+    """Verify a malformed JSON answer earns no reward even if the verifier is lenient.
+
+    The model in an earlier run dropped the closing ``]`` (e.g.
+    ``{"ring_index": [1, 2, 3}``); the official verifier still parsed the
+    integers, so without a strict-JSON gate the model could farm partial credit
+    on malformed output. Both the shaped reward and the diagnostics must reject it.
+    """
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    malformed = [
+        _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 2, 3}</answer>')
+    ]
+    out = reward(completions=malformed, answer=['{"ring_index": [0, 1, 2, 3]}'])
+    assert out == [0.0]
+    diag = moleculariq_diagnostics(
+        malformed[0][0]["content"], '{"ring_index": [0, 1, 2, 3]}', "single_index"
+    )
+    assert diag["json_valid"] is False
+    assert diag["exact_match"] == 0.0
+    assert diag["partial_score"] == 0.0
+
+
+def test_shaped_index_partial_is_dense_but_exact_is_zero():
+    """Verify a near-miss index answer earns dense credit while exact match fails.
+
+    This is the property that lets GRPO learn set-valued index tasks: the shaped
+    reward is well above zero even though the all-or-nothing verdict is wrong.
+    """
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    near_miss = [
+        _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 2, 3]}</answer>')
+    ]
+    out = reward(completions=near_miss, answer=['{"ring_index": [0, 1, 2, 3, 4]}'])
+    assert 0.0 < out[0] < 1.0
+    diag = moleculariq_diagnostics(near_miss[0][0]["content"], '{"ring_index": [0, 1, 2, 3, 4]}', "single_index")
+    assert diag["exact_match"] == 0.0

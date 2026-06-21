@@ -34,6 +34,8 @@ class TrainArgs:
         learning_rate: Optimizer learning rate.
         beta: GRPO KL-to-reference coefficient.
         num_generations: Number of completions sampled per prompt.
+        temperature: Sampling temperature for GRPO generation (higher = more
+            exploration, useful for generative tasks prone to mode collapse).
         per_device_train_batch_size: Per-device batch size.
         gradient_accumulation_steps: Number of gradient accumulation steps.
         max_prompt_length: Maximum prompt token length.
@@ -69,6 +71,7 @@ class TrainArgs:
     learning_rate: float = 1e-5
     beta: float = 0.005
     num_generations: int = 4
+    temperature: float = 1.0
     per_device_train_batch_size: int = 4
     gradient_accumulation_steps: int = 4
     max_prompt_length: int = 256
@@ -124,6 +127,7 @@ def _build_training_args(cfg: TrainArgs) -> GRPOConfig:
         bf16=cfg.bf16,
         per_device_train_batch_size=cfg.per_device_train_batch_size,
         num_generations=cfg.num_generations,
+        temperature=cfg.temperature,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
         max_prompt_length=cfg.max_prompt_length,
         max_completion_length=cfg.max_completion_length,
