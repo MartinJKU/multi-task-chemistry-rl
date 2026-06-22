@@ -1,0 +1,46 @@
+task_name: moleculariq
+# For the curriculum, the runner overrides model_name per stage; this value is the
+# default used when this config is run standalone (e.g. a strategy run).
+model_name: outputs/miq-curriculum-15b-01-counts
+dataset_path: data/miq_multitask_balanced_train
+output_dir: outputs/miq-multitask-a100-15b-grpo
+
+moleculariq_task_type: single_count
+
+learning_rate: 1.0e-5
+beta: 0.005
+
+# --- A100 (64 GB) throughput tuning for the 1.5B model -----------------------
+# Same recipe as miq_multitask_a100_train.yaml but with a smaller training batch.
+# GRPO materializes full-vocab logits (151,936) for BOTH the policy and the KL
+# reference model, and 1.5B is ~3x the parameters of 0.5B, so the training batch
+# is the memory bottleneck. Start at 16 (the OOM fallback that worked for 0.5B);
+# if nvidia-smi shows headroom you can raise to 24/32, if you OOM drop to 8.
+num_generations: 8                  # also improves GRPO advantage estimates
+per_device_train_batch_size: 16     # must keep (bsz * grad_accum) divisible by num_generations
+gradient_accumulation_steps: 1
+gradient_checkpointing: true        # required: full-vocab logits make this batch memory-bound
+# -----------------------------------------------------------------------------
+
+max_prompt_length: 384
+max_completion_length: 384
+num_train_epochs: 1
+max_steps: -1
+warmup_ratio: 0.1
+weight_decay: 0.1
+max_grad_norm: 0.1
+lr_scheduler_type: cosine
+
+seed: 42
+logging_steps: 1
+save_steps: 500
+bf16: true
+optim: adamw_torch
+
+use_soft_format_reward: true
+correctness_weight: 2.0
+use_shaped_moleculariq_reward: true
+shaped_moleculariq_weight: 1.0
+smiles_validity_weight: 0.5
+resume_from_checkpoint:
+save_on_interrupt: true

@@ -89,13 +89,18 @@ print(f"[setup] torch cuda build={torch.version.cuda}")
 print(f"[setup] torch cuda available on this node={torch.cuda.is_available()}")
 PY
 
-# 5) Pre-download the base model into the HF cache --------------------------
-python - <<'PY'
+# 5) Pre-download the base models into the HF cache -------------------------
+#    Both the 0.5B and 1.5B Instruct models are cached so the offline compute
+#    nodes can run either curriculum (slurm/curriculum.slurm uses 0.5B,
+#    slurm/curriculum_1.5b.slurm uses 1.5B). Override MODELS to add/remove.
+MODELS="${MODELS:-Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct}"
+MODELS="$MODELS" python - <<'PY'
+import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
-m = "Qwen/Qwen2.5-0.5B-Instruct"
-AutoTokenizer.from_pretrained(m)
-AutoModelForCausalLM.from_pretrained(m)
-print("[setup] base model cached")
+for m in os.environ["MODELS"].split():
+    AutoTokenizer.from_pretrained(m)
+    AutoModelForCausalLM.from_pretrained(m)
+    print(f"[setup] base model cached: {m}")
 PY
 
 # 6) Pre-build ALL datasets (downloads the MolecularIQ SMILES pool once) -----

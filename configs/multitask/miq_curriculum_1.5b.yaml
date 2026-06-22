@@ -1,0 +1,304 @@
+# 1.5B variant of miq_curriculum.yaml. Identical curriculum/datasets, but trains
+# Qwen/Qwen2.5-1.5B-Instruct and writes to its own outputs/miq-curriculum-15b-*
+# directories so it can run alongside the 0.5B curriculum without clobbering it.
+# The dataset out_dir paths are intentionally the SAME as the 0.5B config: the
+# datasets are model-agnostic (text prompts tokenized at train time), so this run
+# reuses the datasets already built by slurm/setup_leonardo.sh (read-only).
+base_train_config: configs/multitask/miq_multitask_a100_1.5b_train.yaml
+base_model: Qwen/Qwen2.5-1.5B-Instruct
+overwrite_datasets: false
+
+stages:
+  - name: 01_counts
+    dataset:
+      out_dir: data/miq_curriculum_01_counts_train
+      strategy: balanced
+      split: train
+      seed: 42
+      shuffle: true
+      samples_per_task: 1500
+      tasks:
+        - task_id: sc_ring_count
+          task_type: single_count
+          properties: [ring_count]
+          num_samples: 1500
+        - task_id: sc_aromatic_ring
+          task_type: single_count
+          properties: [aromatic_ring_count]
+          num_samples: 1500
+        - task_id: sc_fused_ring
+          task_type: single_count
+          properties: [fused_ring_count]
+          num_samples: 1500
+        - task_id: sc_carbon_atom
+          task_type: single_count
+          properties: [carbon_atom_count]
+          num_samples: 1500
+        - task_id: sc_hetero_atom
+          task_type: single_count
+          properties: [hetero_atom_count]
+          num_samples: 1500
+        - task_id: sc_hba
+          task_type: single_count
+          properties: [hba_count]
+          num_samples: 1500
+        - task_id: sc_rotatable_bond
+          task_type: single_count
+          properties: [rotatable_bond_count]
+          num_samples: 1500
+        - task_id: mc_topology
+          task_type: multi_count
+          properties: [ring_count, aromatic_ring_count, fused_ring_count]
+          num_samples: 1500
+        - task_id: mc_composition
+          task_type: multi_count
+          properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+          num_samples: 1500
+    train:
+      output_dir: outputs/miq-curriculum-15b-01-counts
+      max_steps: 2500
+      save_steps: 500
+
+  - name: 02_simple_index
+    dataset:
+      out_dir: data/miq_curriculum_02_simple_index_train
+      strategy: pooled
+      split: train
+      seed: 43
+      shuffle: true
+      tasks:
+        # Replay every count family learned in stage 1 so it is not forgotten
+        # while the model picks up index tasks.
+        - task_id: sc_ring_count_replay
+          task_type: single_count
+          properties: [ring_count]
+          num_samples: 250
+        - task_id: sc_aromatic_ring_replay
+          task_type: single_count
+          properties: [aromatic_ring_count]
+          num_samples: 250
+        - task_id: sc_fused_ring_replay
+          task_type: single_count
+          properties: [fused_ring_count]
+          num_samples: 250
+        - task_id: sc_carbon_atom_replay
+          task_type: single_count
+          properties: [carbon_atom_count]
+          num_samples: 250
+        - task_id: sc_hetero_atom_replay
+          task_type: single_count
+          properties: [hetero_atom_count]
+          num_samples: 250
+        - task_id: sc_hba_replay
+          task_type: single_count
+          properties: [hba_count]
+          num_samples: 250
+        - task_id: sc_rotatable_bond_replay
+          task_type: single_count
+          properties: [rotatable_bond_count]
+          num_samples: 250
+        - task_id: mc_topology_replay
+          task_type: multi_count
+          properties: [ring_count, aromatic_ring_count, fused_ring_count]
+          num_samples: 250
+        - task_id: mc_composition_replay
+          task_type: multi_count
+          properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+          num_samples: 250
+        - task_id: si_ring
+          task_type: single_index
+          properties: [ring_index]
+          num_samples: 1500
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+        - task_id: si_aromatic_ring
+          task_type: single_index
+          properties: [aromatic_ring_index]
+          num_samples: 1500
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+        - task_id: si_carbon_atom
+          task_type: single_index
+          properties: [carbon_atom_index]
+          num_samples: 1500
+          candidate_multiplier: 8
+          filters:
+            max_smiles_length: 70
+            max_answer_list_length: 18
+        - task_id: si_hetero_atom
+          task_type: single_index
+          properties: [hetero_atom_index]
+          num_samples: 1500
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+    train:
+      output_dir: outputs/miq-curriculum-15b-02-simple-index
+      max_steps: 3000
+      save_steps: 500
+
+  - name: 03_full_index
+    dataset:
+      out_dir: data/miq_curriculum_03_full_index_train
+      strategy: pooled
+      split: train
+      seed: 44
+      shuffle: true
+      tasks:
+        # Replay counts and the single-index tasks from earlier stages.
+        - task_id: sc_ring_count_replay
+          task_type: single_count
+          properties: [ring_count]
+          num_samples: 250
+        - task_id: sc_aromatic_ring_replay
+          task_type: single_count
+          properties: [aromatic_ring_count]
+          num_samples: 250
+        - task_id: sc_fused_ring_replay
+          task_type: single_count
+          properties: [fused_ring_count]
+          num_samples: 250
+        - task_id: sc_carbon_atom_replay
+          task_type: single_count
+          properties: [carbon_atom_count]
+          num_samples: 250
+        - task_id: mc_topology_replay
+          task_type: multi_count
+          properties: [ring_count, aromatic_ring_count, fused_ring_count]
+          num_samples: 250
+        - task_id: mc_composition_replay
+          task_type: multi_count
+          properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+          num_samples: 250
+        # Index tasks share the eval-time tractability filters so training and
+        # evaluation see the same distribution.
+        - task_id: si_ring
+          task_type: single_index
+          properties: [ring_index]
+          num_samples: 1500
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+        - task_id: si_aromatic_ring
+          task_type: single_index
+          properties: [aromatic_ring_index]
+          num_samples: 1500
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+        - task_id: si_carbon_atom
+          task_type: single_index
+          properties: [carbon_atom_index]
+          num_samples: 1500
+          candidate_multiplier: 8
+          filters:
+            max_smiles_length: 70
+            max_answer_list_length: 18
+        - task_id: si_hetero_atom
+          task_type: single_index
+          properties: [hetero_atom_index]
+          num_samples: 1500
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+        - task_id: mi_ring_aromatic
+          task_type: multi_index
+          properties: [ring_index, aromatic_ring_index]
+          num_samples: 1500
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+    train:
+      output_dir: outputs/miq-curriculum-15b-03-full-index
+      max_steps: 3000
+      save_steps: 500
+
+  - name: 04_generation
+    dataset:
+      out_dir: data/miq_curriculum_04_generation_train
+      strategy: pooled
+      split: train
+      seed: 45
+      shuffle: true
+      tasks:
+        # Replay count and index families so the generation stage does not erase
+        # the skills learned in stages 1-3.
+        - task_id: sc_ring_count_replay
+          task_type: single_count
+          properties: [ring_count]
+          num_samples: 300
+        - task_id: sc_aromatic_ring_replay
+          task_type: single_count
+          properties: [aromatic_ring_count]
+          num_samples: 300
+        - task_id: sc_fused_ring_replay
+          task_type: single_count
+          properties: [fused_ring_count]
+          num_samples: 300
+        - task_id: mc_topology_replay
+          task_type: multi_count
+          properties: [ring_count, aromatic_ring_count, fused_ring_count]
+          num_samples: 300
+        - task_id: mc_composition_replay
+          task_type: multi_count
+          properties: [carbon_atom_count, hetero_atom_count, halogen_atom_count]
+          num_samples: 300
+        - task_id: si_ring_replay
+          task_type: single_index
+          properties: [ring_index]
+          num_samples: 300
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+        - task_id: si_carbon_atom_replay
+          task_type: single_index
+          properties: [carbon_atom_index]
+          num_samples: 300
+          candidate_multiplier: 8
+          filters:
+            max_smiles_length: 70
+            max_answer_list_length: 18
+        - task_id: mi_ring_aromatic_replay
+          task_type: multi_index
+          properties: [ring_index, aromatic_ring_index]
+          num_samples: 300
+          candidate_multiplier: 6
+          filters:
+            max_smiles_length: 90
+            max_answer_list_length: 10
+        - task_id: cg_ring_count
+          task_type: constraint_generation
+          properties: [ring_count]
+          num_samples: 2000
+          candidate_multiplier: 4
+          filters:
+            max_answer_numeric_value: 3
+        - task_id: cg_carbon_atom
+          task_type: constraint_generation
+          properties: [carbon_atom_count]
+          num_samples: 2000
+          candidate_multiplier: 4
+          filters:
+            max_answer_numeric_value: 12
+    train:
+      output_dir: outputs/miq-curriculum-15b-04-generation
+      max_steps: 2500
+      save_steps: 500
+      # Constraint generation collapses to one safe molecule (benzene) unless the
+      # policy explores and the reward rewards hitting the target over merely
+      # being valid. More generations + higher temperature break the collapse;
+      # property-closeness is weighted above the flat valid-SMILES floor.
+      num_generations: 16
+      temperature: 1.1
+      shaped_moleculariq_weight: 1.5
+      smiles_validity_weight: 0.25

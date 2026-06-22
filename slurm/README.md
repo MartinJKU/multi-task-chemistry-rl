@@ -64,6 +64,31 @@ sbatch slurm/curriculum.slurm
 sbatch slurm/strategies.slurm
 ```
 
+### Running 0.5B and 1.5B in parallel
+
+Each job only uses **one GPU**, and a Booster node has 4× A100, so you can run a
+1.5B curriculum alongside the 0.5B one — they are independent SLURM jobs that the
+scheduler runs concurrently (subject to your QoS GPU/job limits and budget):
+
+```bash
+sbatch slurm/curriculum.slurm        # 0.5B -> outputs/miq-curriculum-*
+sbatch slurm/curriculum_1.5b.slurm   # 1.5B -> outputs/miq-curriculum-15b-*
+```
+
+The 1.5B job (`curriculum_1.5b.slurm`) uses `miq_curriculum_1.5b.yaml`
+(`base_model: Qwen/Qwen2.5-1.5B-Instruct`) and the
+`miq_multitask_a100_1.5b_train.yaml` base config, which keeps the same recipe but
+a smaller `per_device_train_batch_size` (16) since 1.5B is ~3× the parameters.
+Its checkpoints go to `outputs/miq-curriculum-15b-*`, so nothing collides with
+the 0.5B run, and it **reuses the same prebuilt datasets** (datasets are
+model-agnostic). The 1.5B model is cached by `setup_leonardo.sh` alongside the
+0.5B one — if you set it up before this was added, re-run `setup_leonardo.sh`
+(or just `MODELS="Qwen/Qwen2.5-1.5B-Instruct" bash slurm/setup_leonardo.sh` is
+not enough since it rebuilds the venv; on a login node simply
+`python -c "from transformers import AutoModelForCausalLM, AutoTokenizer as T; m='Qwen/Qwen2.5-1.5B-Instruct'; T.from_pretrained(m); AutoModelForCausalLM.from_pretrained(m)"`
+with `HF_HOME=$WORK/hf_cache` exported). If you OOM on the 1.5B run, drop
+`per_device_train_batch_size` to 8 in `miq_multitask_a100_1.5b_train.yaml`.
+
 `curriculum.slurm` uses the **A100-tuned** base config
 (`configs/multitask/miq_multitask_a100_train.yaml`): bigger batch, more
 generations, and no gradient checkpointing, so generation runs many completions
