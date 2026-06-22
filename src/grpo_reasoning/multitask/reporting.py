@@ -18,6 +18,29 @@ import numpy as np
 EvalSummary = dict[str, Any]
 TrainingRun = dict[str, Any]
 
+_TASK_TABLE_METRICS = (
+    "accuracy",
+    "partial_score_mean",
+    "json_valid_rate",
+    "answer_present_rate",
+    "valid_smiles_rate",
+    "distinct_answer_rate",
+    "most_common_answer_rate",
+    "index_precision_mean",
+    "index_recall_mean",
+    "avg_index_pred_len",
+    "avg_index_gold_len",
+    "avg_index_false_positives",
+    "avg_index_false_negatives",
+    "empty_gold_nonempty_rate",
+    "superset_rate",
+    "subset_rate",
+    "constraint_satisfied_fraction_mean",
+    "ringless_when_ring_requested_rate",
+    "canonical_smiles_distinct_rate",
+    "trivial_alkane_rate",
+)
+
 
 def create_experiment_report(
     outputs_dir: Path | str = "outputs",
@@ -157,15 +180,7 @@ def write_eval_tables(summaries: list[EvalSummary], out_dir: Path | str) -> list
     labels = [summary["_label"] for summary in summaries]
     task_fields = ["task_id", "task_type", "properties"]
     for label in labels:
-        task_fields.extend(
-            [
-                f"{label}_accuracy",
-                f"{label}_partial_score_mean",
-                f"{label}_json_valid_rate",
-                f"{label}_answer_present_rate",
-                f"{label}_valid_smiles_rate",
-            ]
-        )
+        task_fields.extend(f"{label}_{metric}" for metric in _TASK_TABLE_METRICS)
     task_fields.extend(["winner", "best_accuracy", "spread_pp"])
 
     task_rows = _task_rows(summaries)
@@ -316,13 +331,7 @@ def _task_rows(summaries: list[EvalSummary]) -> list[dict[str, Any]]:
                     "task_type": task.get("task_type", ""),
                     "properties": ",".join(task.get("properties", [])),
                 }
-            for metric in (
-                "accuracy",
-                "partial_score_mean",
-                "json_valid_rate",
-                "answer_present_rate",
-                "valid_smiles_rate",
-            ):
+            for metric in _TASK_TABLE_METRICS:
                 by_task[task_id][f"{label}_{metric}"] = _fmt(task.get(metric))
 
     rows = []

@@ -39,6 +39,6 @@ reasoning_quality_weight: 0.5
 correctness_weight: 2.0
 use_shaped_moleculariq_reward: true
 shaped_moleculariq_weight: 1.5      # property-closeness dominates
-smiles_validity_weight: 0.25        # de-emphasise the "safe valid molecule" floor
+smiles_validity_weight: 0.05        # keep validity as a gate, not the objective
 resume_from_checkpoint:
 save_on_interrupt: true

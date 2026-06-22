@@ -54,3 +54,17 @@ def test_count_task_keeps_single_shot_demo():
     assert task.few_shot_examples is None
     assert task.few_shot_question is not None
     assert task.few_shot_answer is not None
+
+
+def test_constraint_generation_uses_property_aware_examples():
+    """Verify ring generation demos include actual ring-containing SMILES."""
+    task = get_task(
+        "moleculariq",
+        task_type="constraint_generation",
+        properties=["ring_count"],
+    )
+    assert task.few_shot_examples is not None
+    demo_answers = " ".join(answer for _, answer in task.few_shot_examples)
+    assert "C1CCCCC1" in demo_answers
+    assert "C1CCC2CCCCC2C1" in demo_answers
+    assert task.few_shot_question is None

@@ -157,17 +157,17 @@ def test_moleculariq_shaped_multi_count_averages_keys():
 
 
 def test_moleculariq_shaped_index_overlap():
-    """Verify index tasks receive Jaccard set-overlap partial credit."""
+    """Verify index tasks receive precision-biased set-overlap partial credit."""
     reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
     completions = [
         _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 9]}</answer>')
     ]
     out = reward(completions=completions, answer=['{"ring_index": [0, 1, 2]}'])
-    # Jaccard: |{0,1}| / |{0,1,2,9}| = 2/4
+    # Tversky: TP=2, FP=1, FN=1 -> 2 / (2 + 1.5 + 0.5)
     assert out == [2 / 4]
 
 
-def test_shaped_index_jaccard_punishes_overprediction():
+def test_shaped_index_overlap_punishes_overprediction():
     """Verify dumping a long consecutive list scores low (anti reward-hacking).
 
     Mirrors the degenerate "{ring_index: [1..N]}" policy seen in training: it has
@@ -181,8 +181,20 @@ def test_shaped_index_jaccard_punishes_overprediction():
         )
     ]
     out = reward(completions=dump, answer=['{"ring_index": [0, 1, 2]}'])
-    # Jaccard 3/10 = 0.3 (vs Dice/F1 which would reward this ~0.46)
-    assert out[0] == 3 / 10
+    # Precision-biased Tversky: TP=3, FP=7, FN=0 -> 3 / (3 + 10.5)
+    assert out[0] == 3 / 13.5
+
+
+def test_shaped_index_empty_gold_rejects_nonempty_prediction():
+    """Verify empty index targets strongly reject non-empty predictions."""
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    out = reward(
+        completions=[
+            _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1]}</answer>')
+        ],
+        answer=['{"ring_index": []}'],
+    )
+    assert out == [0.0]
 
 
 def test_moleculariq_shaped_constraint_valid_smiles_if_rdkit_available():
@@ -224,6 +236,21 @@ def test_moleculariq_diagnostics_exact_match_on_perfect_answer():
     out = moleculariq_diagnostics(completion, '{"ring_index": [0, 1, 2]}', "single_index")
     assert out["exact_match"] == 1.0
     assert out["partial_score"] == 1.0
+    assert out["index_precision"] == 1.0
+    assert out["index_recall"] == 1.0
+
+
+def test_moleculariq_diagnostics_reports_index_overprediction():
+    """Verify diagnostics expose broad-span index failures."""
+    completion = (
+        '<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 2, 3]}</answer>'
+    )
+    out = moleculariq_diagnostics(completion, '{"ring_index": [1, 2]}', "single_index")
+    assert out["index_precision"] == 0.5
+    assert out["index_recall"] == 1.0
+    assert out["index_false_positives"] == 2.0
+    assert out["index_false_negatives"] == 0.0
+    assert out["index_superset"] is True
 
 
 def test_malformed_json_answer_gets_no_credit():

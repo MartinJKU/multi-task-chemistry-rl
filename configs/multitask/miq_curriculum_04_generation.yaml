@@ -35,7 +35,16 @@ tasks:
   - task_id: si_ring_replay
     task_type: single_index
     properties: [ring_index]
-    num_samples: 300
+    num_samples: 800
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
+  - task_id: si_aromatic_ring_replay
+    task_type: single_index
+    properties: [aromatic_ring_index]
+    num_samples: 800
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
@@ -44,16 +53,25 @@ tasks:
   - task_id: si_carbon_atom_replay
     task_type: single_index
     properties: [carbon_atom_index]
-    num_samples: 300
+    num_samples: 800
     candidate_multiplier: 8
     filters:
       max_smiles_length: 70
       max_answer_list_length: 18
 
+  - task_id: si_hetero_atom_replay
+    task_type: single_index
+    properties: [hetero_atom_index]
+    num_samples: 800
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
   - task_id: mi_ring_aromatic_replay
     task_type: multi_index
     properties: [ring_index, aromatic_ring_index]
-    num_samples: 300
+    num_samples: 800
     candidate_multiplier: 6
     filters:
       max_smiles_length: 90
@@ -65,7 +83,7 @@ tasks:
   - task_id: cg_ring_count
     task_type: constraint_generation
     properties: [ring_count]
-    num_samples: 2000
+    num_samples: 1500
     candidate_multiplier: 4
     filters:
       max_answer_numeric_value: 3
@@ -73,7 +91,7 @@ tasks:
   - task_id: cg_carbon_atom
     task_type: constraint_generation
     properties: [carbon_atom_count]
-    num_samples: 2000
+    num_samples: 1500
     candidate_multiplier: 4
     filters:
       max_answer_numeric_value: 12

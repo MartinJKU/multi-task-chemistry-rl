@@ -58,8 +58,8 @@ tasks:
     num_samples: 1500
     candidate_multiplier: 6
     filters:
-      max_smiles_length: 90
-      max_answer_list_length: 10
+      max_smiles_length: 60
+      max_answer_list_length: 6
 
   - task_id: si_aromatic_ring
     task_type: single_index
@@ -67,8 +67,8 @@ tasks:
     num_samples: 1500
     candidate_multiplier: 6
     filters:
-      max_smiles_length: 90
-      max_answer_list_length: 10
+      max_smiles_length: 60
+      max_answer_list_length: 6
 
   - task_id: si_carbon_atom
     task_type: single_index
@@ -76,8 +76,8 @@ tasks:
     num_samples: 1500
     candidate_multiplier: 8
     filters:
-      max_smiles_length: 70
-      max_answer_list_length: 18
+      max_smiles_length: 45
+      max_answer_list_length: 8
 
   - task_id: si_hetero_atom
     task_type: single_index
@@ -85,5 +85,5 @@ tasks:
     num_samples: 1500
     candidate_multiplier: 6
     filters:
-      max_smiles_length: 90
-      max_answer_list_length: 10
+      max_smiles_length: 60
+      max_answer_list_length: 6

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,7 @@ def evaluate(
 
     results: list[dict] = []
     correct = 0
-    diagnostic_rows: list[dict[str, float | bool]] = []
+    diagnostic_rows: list[dict[str, float | bool | str]] = []
     eval_task_type = getattr(task, "task_type", None)
 
     for start in tqdm(range(0, len(ds), batch_size), desc="eval"):
@@ -109,7 +110,8 @@ def evaluate(
             results.append(row)
 
     total = len(results)
-    distinct_answers = len({row["extracted"] for row in results if row["extracted"]})
+    answer_counts = Counter(row["extracted"] for row in results if row["extracted"])
+    distinct_answers = len(answer_counts)
     metrics = {
         "accuracy": correct / total if total else 0.0,
         "correct": correct,
@@ -119,6 +121,9 @@ def evaluate(
         # of reward-hacking on set-valued tasks rather than real per-molecule
         # reasoning.
         "distinct_answer_rate": distinct_answers / total if total else 0.0,
+        "most_common_answer_rate": (
+            max(answer_counts.values()) / total if total and answer_counts else 0.0
+        ),
         "model_path": str(model_path),
         "task": task_name,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -142,6 +147,8 @@ def evaluate(
                 / len(diagnostic_rows),
             }
         )
+        _add_index_metrics(metrics, diagnostic_rows)
+        _add_constraint_metrics(metrics, diagnostic_rows)
 
     if save_path is not None:
         save_path = Path(save_path)
@@ -152,3 +159,65 @@ def evaluate(
 
     print(f"[eval] accuracy = {metrics['accuracy']:.2%} ({correct}/{total})")
     return metrics
+
+
+def _mean(rows: list[dict[str, Any]], key: str) -> float | None:
+    """Average numeric/boolean diagnostic values for rows that contain key."""
+    values = [row[key] for row in rows if key in row]
+    if not values:
+        return None
+    return sum(float(value) for value in values) / len(values)
+
+
+def _add_index_metrics(
+    metrics: dict[str, Any],
+    diagnostic_rows: list[dict[str, float | bool | str]],
+) -> None:
+    """Add precision/recall and over-prediction metrics for index tasks."""
+    metric_map = {
+        "index_precision": "index_precision_mean",
+        "index_recall": "index_recall_mean",
+        "index_pred_len": "avg_index_pred_len",
+        "index_gold_len": "avg_index_gold_len",
+        "index_false_positives": "avg_index_false_positives",
+        "index_false_negatives": "avg_index_false_negatives",
+        "index_empty_gold_nonempty_pred": "empty_gold_nonempty_rate",
+        "index_superset": "superset_rate",
+        "index_subset": "subset_rate",
+    }
+    for source, target in metric_map.items():
+        value = _mean(diagnostic_rows, source)
+        if value is not None:
+            metrics[target] = value
+
+
+def _add_constraint_metrics(
+    metrics: dict[str, Any],
+    diagnostic_rows: list[dict[str, float | bool | str]],
+) -> None:
+    """Add constraint satisfaction and SMILES expressivity metrics."""
+    for source, target in (
+        ("constraint_satisfied_fraction", "constraint_satisfied_fraction_mean"),
+        ("trivial_alkane", "trivial_alkane_rate"),
+    ):
+        value = _mean(diagnostic_rows, source)
+        if value is not None:
+            metrics[target] = value
+
+    ring_requested = [
+        row for row in diagnostic_rows if bool(row.get("ring_requested", False))
+    ]
+    if ring_requested:
+        metrics["ringless_when_ring_requested_rate"] = sum(
+            1 for row in ring_requested if row.get("ringless_when_ring_requested")
+        ) / len(ring_requested)
+
+    canonical = [
+        str(row["canonical_smiles"])
+        for row in diagnostic_rows
+        if row.get("canonical_smiles")
+    ]
+    if canonical:
+        metrics["canonical_smiles_distinct_rate"] = len(set(canonical)) / len(
+            canonical
+        )

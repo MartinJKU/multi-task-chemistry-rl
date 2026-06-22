@@ -45,6 +45,72 @@ _FEW_SHOT_EXAMPLES: dict[str, tuple[str, str]] = {
     ),
 }
 
+_CONSTRAINT_FEW_SHOT_BY_PROPERTY: dict[str, list[tuple[str, str]]] = {
+    "ring_count": [
+        (
+            "Generate a molecule with exactly 1 ring. Return JSON with key "
+            '"smiles".',
+            "<reasoning>Cyclohexane closes one ring using matching ring digit 1,"
+            " so C1CCCCC1 has exactly one ring.</reasoning>\n"
+            '<answer>{"smiles": "C1CCCCC1"}</answer>',
+        ),
+        (
+            "Generate a molecule with exactly 2 rings. Return JSON with key "
+            '"smiles".',
+            "<reasoning>A fused bicyclic skeleton must contain two independent"
+            " ring closures. C1CCC2CCCCC2C1 is a valid bicyclic hydrocarbon with"
+            " ring_count = 2.</reasoning>\n"
+            '<answer>{"smiles": "C1CCC2CCCCC2C1"}</answer>',
+        ),
+    ],
+    "carbon_atom_count": [
+        (
+            "Generate a molecule with exactly 5 carbon atoms. Return JSON with key "
+            '"smiles".',
+            "<reasoning>CC(C)CC is a branched alkane with five carbon atoms, so it"
+            " satisfies carbon_atom_count = 5 without relying on only a straight"
+            " chain.</reasoning>\n"
+            '<answer>{"smiles": "CC(C)CC"}</answer>',
+        ),
+        (
+            "Generate a molecule with exactly 6 carbon atoms. Return JSON with key "
+            '"smiles".',
+            "<reasoning>Cyclohexane, C1CCCCC1, has six carbon atoms and is valid,"
+            " so it satisfies carbon_atom_count = 6.</reasoning>\n"
+            '<answer>{"smiles": "C1CCCCC1"}</answer>',
+        ),
+    ],
+    "aromatic_ring_count": [
+        (
+            "Generate a molecule with exactly 1 aromatic ring. Return JSON with key "
+            '"smiles".',
+            "<reasoning>Benzene c1ccccc1 is one six-membered aromatic ring, so"
+            " aromatic_ring_count = 1.</reasoning>\n"
+            '<answer>{"smiles": "c1ccccc1"}</answer>',
+        ),
+    ],
+    "hetero_atom_count": [
+        (
+            "Generate a molecule with exactly 1 hetero atom. Return JSON with key "
+            '"smiles".',
+            "<reasoning>CCO has two carbons and one oxygen. Oxygen is the only"
+            " hetero atom, so hetero_atom_count = 1.</reasoning>\n"
+            '<answer>{"smiles": "CCO"}</answer>',
+        ),
+    ],
+}
+
+
+def _constraint_few_shot_examples(properties: list[str]) -> list[tuple[str, str]]:
+    """Return property-aware generation demonstrations for constraint tasks."""
+    examples: list[tuple[str, str]] = []
+    for prop in properties:
+        examples.extend(_CONSTRAINT_FEW_SHOT_BY_PROPERTY.get(prop, []))
+    if examples:
+        return examples
+    return [_FEW_SHOT_EXAMPLES["constraint_generation"]]
+
+
 # Multi-shot demos for index tasks. Index tasks collapse to a molecule-independent
 # "dump a contiguous low range, never empty" policy, so a single benzene example
 # (indices 0-5, fully aromatic) actively reinforces the failure. These pairs
@@ -262,6 +328,11 @@ class MolecularIQTask(Task):
 
         if self.few_shot_examples is None and self.task_type in _INDEX_FEW_SHOT:
             self.few_shot_examples = list(_INDEX_FEW_SHOT[self.task_type])
+        elif (
+            self.few_shot_examples is None
+            and self.task_type == "constraint_generation"
+        ):
+            self.few_shot_examples = _constraint_few_shot_examples(self.properties)
         elif self.few_shot_question is None and self.task_type in _FEW_SHOT_EXAMPLES:
             self.few_shot_question, self.few_shot_answer = _FEW_SHOT_EXAMPLES[
                 self.task_type

@@ -112,9 +112,23 @@ def evaluate_multitask_main() -> None:
             for key in (
                 "partial_score_mean",
                 "distinct_answer_rate",
+                "most_common_answer_rate",
                 "answer_present_rate",
                 "json_valid_rate",
                 "valid_smiles_rate",
+                "index_precision_mean",
+                "index_recall_mean",
+                "avg_index_pred_len",
+                "avg_index_gold_len",
+                "avg_index_false_positives",
+                "avg_index_false_negatives",
+                "empty_gold_nonempty_rate",
+                "superset_rate",
+                "subset_rate",
+                "constraint_satisfied_fraction_mean",
+                "ringless_when_ring_requested_rate",
+                "canonical_smiles_distinct_rate",
+                "trivial_alkane_rate",
             ):
                 if key in metrics:
                     task_row[key] = metrics[key]

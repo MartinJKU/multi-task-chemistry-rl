@@ -24,6 +24,12 @@ _WORD_PATTERN = re.compile(r"[A-Za-z0-9]+")
 _MIN_UNIQUE_REASONING_TOKENS = 4
 _TARGET_UNIQUE_REASONING_TOKENS = 12
 
+# The index evals showed a high-recall/low-precision failure: answers such as
+# ``[0, 1, ..., 18]`` overlap many gold atoms but almost never exactly match.
+# These weights keep dense credit useful while making false positives expensive.
+_INDEX_FALSE_POSITIVE_PENALTY = 1.5
+_INDEX_FALSE_NEGATIVE_PENALTY = 0.5
+
 
 def _completion_text(completion) -> str:
     """Normalize a completion object to text.
@@ -245,25 +251,42 @@ def _as_int_set(value) -> set[int] | None:
     return out
 
 
-def _index_jaccard(predicted, target) -> float:
-    """Score predicted atom-index sets with Jaccard overlap (intersection/union).
-
-    Jaccard is used instead of Dice/F1 because it penalizes over-prediction much
-    harder: a molecule-independent "dump 0..N" policy has perfect recall and
-    earns a misleadingly high F1, but its Jaccard is only |gold|/|prediction|.
-    This keeps the partial score honest -- it stays low unless the predicted set
-    is genuinely specific to the molecule.
-    """
+def _index_confusion(predicted, target) -> dict[str, int] | None:
+    """Return atom-index set confusion counts, or None for malformed values."""
     pred = _as_int_set(predicted)
     gold = _as_int_set(target)
     if pred is None or gold is None:
+        return None
+    true_positive = len(pred & gold)
+    return {
+        "tp": true_positive,
+        "fp": len(pred - gold),
+        "fn": len(gold - pred),
+        "pred_len": len(pred),
+        "gold_len": len(gold),
+    }
+
+
+def _index_precision_biased_overlap(predicted, target) -> float:
+    """Score atom-index sets with a false-positive-biased Tversky overlap.
+
+    Plain Jaccard still gave broad contiguous ranges too much credit in practice.
+    This variant keeps the dense signal but makes over-prediction more costly
+    than under-prediction, which is exactly the observed index failure mode.
+    """
+    counts = _index_confusion(predicted, target)
+    if counts is None:
         return 0.0
-    if not pred and not gold:
-        return 1.0
-    union = len(pred | gold)
-    if union == 0:
+    if counts["gold_len"] == 0:
+        return 1.0 if counts["pred_len"] == 0 else 0.0
+    denom = (
+        counts["tp"]
+        + _INDEX_FALSE_POSITIVE_PENALTY * counts["fp"]
+        + _INDEX_FALSE_NEGATIVE_PENALTY * counts["fn"]
+    )
+    if denom <= 0:
         return 0.0
-    return len(pred & gold) / union
+    return counts["tp"] / denom
 
 
 def _verifier_report(
@@ -345,16 +368,65 @@ def _count_graded(report: dict) -> float:
 
 
 def _index_graded(report: dict) -> float:
-    """Average atom-set F1 over the verifier's per-property index details."""
+    """Average precision-biased atom-set overlap over index details."""
     details = report.get("details") or {}
     if not isinstance(details, dict) or not details:
         return 0.0
     scores = [
-        _index_jaccard(entry.get("predicted"), entry.get("target"))
+        _index_precision_biased_overlap(entry.get("predicted"), entry.get("target"))
         for entry in details.values()
         if isinstance(entry, dict)
     ]
     return sum(scores) / len(scores) if scores else 0.0
+
+
+def _index_diagnostics(report: dict | None) -> dict[str, float | bool]:
+    """Compute precision/recall and over-prediction diagnostics for index tasks."""
+    if report is None:
+        return {}
+    details = report.get("details") or {}
+    if not isinstance(details, dict) or not details:
+        return {}
+
+    totals = {"tp": 0, "fp": 0, "fn": 0, "pred_len": 0, "gold_len": 0}
+    found = False
+    for entry in details.values():
+        if not isinstance(entry, dict):
+            continue
+        counts = _index_confusion(entry.get("predicted"), entry.get("target"))
+        if counts is None:
+            continue
+        found = True
+        for key in totals:
+            totals[key] += counts[key]
+    if not found:
+        return {}
+
+    pred_len = totals["pred_len"]
+    gold_len = totals["gold_len"]
+    precision = (
+        totals["tp"] / pred_len
+        if pred_len
+        else (1.0 if gold_len == 0 else 0.0)
+    )
+    recall = (
+        totals["tp"] / gold_len
+        if gold_len
+        else (1.0 if pred_len == 0 else 0.0)
+    )
+    return {
+        "index_precision": float(precision),
+        "index_recall": float(recall),
+        "index_pred_len": float(pred_len),
+        "index_gold_len": float(gold_len),
+        "index_false_positives": float(totals["fp"]),
+        "index_false_negatives": float(totals["fn"]),
+        "index_empty_gold": gold_len == 0,
+        "index_empty_pred": pred_len == 0,
+        "index_empty_gold_nonempty_pred": gold_len == 0 and pred_len > 0,
+        "index_superset": totals["fn"] == 0 and totals["fp"] > 0,
+        "index_subset": totals["fp"] == 0 and totals["fn"] > 0,
+    }
 
 
 def _constraint_graded(report: dict) -> tuple[float, bool]:
@@ -387,6 +459,76 @@ def _constraint_graded(report: dict) -> tuple[float, bool]:
         else:
             scores.append(0.0)
     return sum(scores) / total, valid_smiles
+
+
+def _constraint_diagnostics(report: dict | None) -> dict[str, float | bool]:
+    """Compute constraint satisfaction diagnostics beyond valid-SMILES rate."""
+    if report is None:
+        return {}
+    details = report.get("details") or []
+    if not isinstance(details, list) or not details:
+        return {}
+
+    supported = 0
+    satisfied = 0
+    ring_requested = False
+    ringless_when_ring_requested = False
+    for entry in details:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("supported"):
+            supported += 1
+        if entry.get("satisfied"):
+            satisfied += 1
+        constraint = entry.get("constraint") or {}
+        if not isinstance(constraint, dict):
+            continue
+        target_value = _as_number(constraint.get("value"))
+        actual_value = _as_number(entry.get("actual"))
+        if (
+            constraint.get("property") == "ring_count"
+            and target_value is not None
+            and target_value > 0
+        ):
+            ring_requested = True
+            if actual_value == 0:
+                ringless_when_ring_requested = True
+
+    return {
+        "constraint_satisfied_fraction": (
+            float(satisfied / supported) if supported else 0.0
+        ),
+        "ring_requested": ring_requested,
+        "ringless_when_ring_requested": ringless_when_ring_requested,
+    }
+
+
+def _constraint_smiles_diagnostics(parsed_answer) -> dict[str, float | bool | str]:
+    """Return optional RDKit-backed diversity diagnostics for generated SMILES."""
+    if not isinstance(parsed_answer, dict):
+        return {}
+    smiles = parsed_answer.get("smiles")
+    if not isinstance(smiles, str) or not smiles:
+        return {}
+    try:
+        from rdkit import Chem
+    except ImportError:
+        return {}
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return {}
+    canonical = Chem.MolToSmiles(mol, canonical=True)
+    ring_count = mol.GetRingInfo().NumRings()
+    all_carbon = all(atom.GetAtomicNum() == 6 for atom in mol.GetAtoms())
+    all_single = all(
+        bond.GetBondType() == Chem.BondType.SINGLE for bond in mol.GetBonds()
+    )
+    return {
+        "canonical_smiles": canonical,
+        "generated_ring_count": float(ring_count),
+        "trivial_alkane": all_carbon and ring_count == 0 and all_single,
+    }
 
 
 def _graded_score(report: dict | None, task_type: str) -> tuple[float, bool]:
@@ -514,7 +656,7 @@ def moleculariq_diagnostics(
     completion_text: str,
     gold_answer: str,
     task_type: str,
-) -> dict[str, float | bool]:
+) -> dict[str, float | bool | str]:
     """Compute diagnostic metrics for one MolecularIQ completion.
 
     Args:
@@ -530,10 +672,16 @@ def moleculariq_diagnostics(
     parsed = _parse_json(extracted) if extracted else None
     report = _verifier_report(completion_text, gold_answer, task_type)
     partial_score, valid_smiles = _graded_score(report, task_type)
-    return {
+    diagnostics: dict[str, float | bool | str] = {
         "answer_present": bool(extracted),
         "json_valid": parsed is not None,
         "exact_match": _exact_score(report),
         "partial_score": float(partial_score),
         "valid_smiles": bool(valid_smiles),
     }
+    if task_type in {"single_index", "multi_index"}:
+        diagnostics.update(_index_diagnostics(report))
+    elif task_type == "constraint_generation":
+        diagnostics.update(_constraint_diagnostics(report))
+        diagnostics.update(_constraint_smiles_diagnostics(parsed))
+    return diagnostics

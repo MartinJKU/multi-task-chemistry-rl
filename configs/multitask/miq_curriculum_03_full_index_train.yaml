@@ -33,7 +33,7 @@ use_reasoning_quality_reward: true
 reasoning_quality_weight: 0.5
 correctness_weight: 2.0
 use_shaped_moleculariq_reward: true
-shaped_moleculariq_weight: 1.0
+shaped_moleculariq_weight: 1.5
 smiles_validity_weight: 0.5
 resume_from_checkpoint:
 save_on_interrupt: true
