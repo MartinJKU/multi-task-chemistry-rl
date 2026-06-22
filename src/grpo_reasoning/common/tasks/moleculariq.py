@@ -21,7 +21,7 @@ _SUPPORTED_TASK_TYPES = {
     "constraint_generation",
 }
 
-# Benzene (c1ccccc1) as the demo molecule
+# Single-shot demos (benzene / pentane) for count and generation tasks.
 _FEW_SHOT_EXAMPLES: dict[str, tuple[str, str]] = {
     "single_count": (
         'How many rings does the molecule "c1ccccc1" have? Provide the result as'
@@ -35,21 +35,6 @@ _FEW_SHOT_EXAMPLES: dict[str, tuple[str, str]] = {
         "<reasoning>Benzene has 1 ring total and 1 aromatic ring.</reasoning>\n"
         '<answer>{"aromatic_ring_count": 1, "ring_count": 1}</answer>',
     ),
-    "single_index": (
-        'Report the ring_index for the molecule "c1ccccc1". Return JSON with key'
-        ' "ring_index" containing a list of 0-based atom indices (H excluded).',
-        "<reasoning>Benzene is a 6-membered ring whose 6 heavy atoms have indices"
-        " 0 through 5 in SMILES order.</reasoning>\n"
-        '<answer>{"ring_index": [0, 1, 2, 3, 4, 5]}</answer>',
-    ),
-    "multi_index": (
-        'For "c1ccccc1", report ring_index and aromatic_ring_index as JSON lists'
-        " of 0-based atom indices.",
-        "<reasoning>All 6 benzene atoms (0-5) are in the ring and all are"
-        " aromatic.</reasoning>\n"
-        '<answer>{"aromatic_ring_index": [0, 1, 2, 3, 4, 5],'
-        ' "ring_index": [0, 1, 2, 3, 4, 5]}</answer>',
-    ),
     "constraint_generation": (
         'Generate a molecule where carbon_atom_count = 5. Return JSON with key'
         ' "smiles" containing a valid SMILES string.',
@@ -58,6 +43,52 @@ _FEW_SHOT_EXAMPLES: dict[str, tuple[str, str]] = {
         " carbon_atom_count = 5.</reasoning>\n"
         '<answer>{"smiles": "CCCCC"}</answer>',
     ),
+}
+
+# Multi-shot demos for index tasks. Index tasks collapse to a molecule-independent
+# "dump a contiguous low range, never empty" policy, so a single benzene example
+# (indices 0-5, fully aromatic) actively reinforces the failure. These pairs
+# instead teach two things the model must learn: (1) walk the SMILES atom by atom
+# so a leading chain pushes the ring to OFFSET indices, and (2) emit an EMPTY list
+# when no atom qualifies.
+_INDEX_FEW_SHOT: dict[str, list[tuple[str, str]]] = {
+    "single_index": [
+        (
+            'Report the ring_index for the molecule "CCC1CCC1". Return JSON with'
+            ' key "ring_index" containing a list of 0-based atom indices (H excluded).',
+            "<reasoning>Index the heavy atoms of CCC1CCC1 in SMILES order: C=0,"
+            " C=1, C=2, C=3, C=4, C=5. The ring-closure digit 1 bonds atom 2 to"
+            " atom 5, so the ring is the 4 atoms 2,3,4,5; atoms 0 and 1 are a"
+            " leading ethyl chain and are excluded.</reasoning>\n"
+            '<answer>{"ring_index": [2, 3, 4, 5]}</answer>',
+        ),
+        (
+            'Report the ring_index for the molecule "CCO". Return JSON with key'
+            ' "ring_index" containing a list of 0-based atom indices (H excluded).',
+            "<reasoning>CCO has atoms C=0, C=1, O=2 and no ring-closure digits, so"
+            " no atom belongs to a ring and the list is empty.</reasoning>\n"
+            '<answer>{"ring_index": []}</answer>',
+        ),
+    ],
+    "multi_index": [
+        (
+            'For "CCc1ccccc1", report ring_index and aromatic_ring_index as JSON'
+            " lists of 0-based atom indices.",
+            "<reasoning>Index CCc1ccccc1 atom by atom: C=0, C=1, then the aromatic"
+            " ring c1ccccc1 is atoms 2,3,4,5,6,7. Atoms 0,1 are an ethyl chain, so"
+            " they are in neither list. The 6 ring atoms 2-7 are all in a ring and"
+            " all aromatic.</reasoning>\n"
+            '<answer>{"aromatic_ring_index": [2, 3, 4, 5, 6, 7],'
+            ' "ring_index": [2, 3, 4, 5, 6, 7]}</answer>',
+        ),
+        (
+            'For "CC(=O)O", report ring_index and aromatic_ring_index as JSON lists'
+            " of 0-based atom indices.",
+            "<reasoning>CC(=O)O has atoms C=0, C=1, O=2, O=3 and no ring at all, so"
+            " both lists are empty.</reasoning>\n"
+            '<answer>{"aromatic_ring_index": [], "ring_index": []}</answer>',
+        ),
+    ],
 }
 
 
@@ -229,7 +260,9 @@ class MolecularIQTask(Task):
                 self.task_type, self.system_prompt_style
             )
 
-        if self.few_shot_question is None and self.task_type in _FEW_SHOT_EXAMPLES:
+        if self.few_shot_examples is None and self.task_type in _INDEX_FEW_SHOT:
+            self.few_shot_examples = list(_INDEX_FEW_SHOT[self.task_type])
+        elif self.few_shot_question is None and self.task_type in _FEW_SHOT_EXAMPLES:
             self.few_shot_question, self.few_shot_answer = _FEW_SHOT_EXAMPLES[
                 self.task_type
             ]

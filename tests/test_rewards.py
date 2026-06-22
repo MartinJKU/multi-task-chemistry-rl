@@ -4,6 +4,7 @@ from grpo_reasoning.common.rewards import (
     format_reward,
     make_exact_match_reward,
     make_moleculariq_shaped_reward,
+    make_reasoning_quality_reward,
     moleculariq_diagnostics,
     soft_format_reward,
 )
@@ -60,6 +61,43 @@ def test_soft_format_partial_credit():
     """
     msg = _conv("<reasoning>x</reasoning> bla <answer>4</answer>")
     assert soft_format_reward([msg]) == [0.5]
+
+
+def test_reasoning_quality_rejects_empty_and_echo_reasoning():
+    """Verify the degenerate empty/echo reasoning collapse earns zero reward.
+
+    Reproduces the failure seen in the index eval dumps, where every completion
+    was ``<reasoning> aromatic_ring_index</reasoning>`` followed by a guess.
+    """
+    reward = make_reasoning_quality_reward(weight=0.5)
+    empty = _conv("<reasoning></reasoning>\n<answer>{\"ring_index\": [0, 1]}</answer>")
+    echo = _conv(
+        "<reasoning> aromatic_ring_index</reasoning>\n"
+        '<answer>{"aromatic_ring_index": [6, 7, 8]}</answer>'
+    )
+    assert reward(completions=[empty, echo]) == [0.0, 0.0]
+
+
+def test_reasoning_quality_credits_substantive_reasoning():
+    """Verify a real, number-bearing rationale earns the full weight."""
+    reward = make_reasoning_quality_reward(weight=0.5)
+    good = _conv(
+        "<reasoning>Index the atoms of CCc1ccccc1: C=0, C=1, then the benzene"
+        " ring spans atoms 2 through 7, so the ethyl carbons 0 and 1 are"
+        " excluded.</reasoning>\n"
+        '<answer>{"ring_index": [2, 3, 4, 5, 6, 7]}</answer>'
+    )
+    assert reward(completions=[good]) == [0.5]
+
+
+def test_reasoning_quality_caps_so_padding_does_not_pay():
+    """Verify credit is capped: a very long rationale cannot exceed the weight."""
+    reward = make_reasoning_quality_reward(weight=0.5)
+    padded = _conv(
+        "<reasoning>" + " ".join(f"step{i} count 1" for i in range(200)) + "</reasoning>\n"
+        '<answer>{"ring_index": [0]}</answer>'
+    )
+    assert reward(completions=[padded]) == [0.5]
 
 
 def test_correctness_reward_exact_match():

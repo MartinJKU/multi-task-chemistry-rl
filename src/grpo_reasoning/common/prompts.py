@@ -14,14 +14,17 @@ def build_chat_prompt(
     task_instructions: str,
     few_shot_question: str | None = None,
     few_shot_answer: str | None = None,
+    few_shot_examples: list[tuple[str, str]] | None = None,
 ) -> list[dict]:
     """Build a chat-format prompt list.
 
     Args:
         question: User question to place at the end of the prompt.
         task_instructions: Optional task-specific system instructions.
-        few_shot_question: Optional example user question.
-        few_shot_answer: Optional example assistant answer.
+        few_shot_question: Optional single example user question (legacy single-shot).
+        few_shot_answer: Optional single example assistant answer (legacy single-shot).
+        few_shot_examples: Optional ordered list of (question, answer) pairs for
+            multi-shot prompting. Takes precedence over the single-shot pair.
 
     Returns:
         Chat messages in tokenizer-compatible dictionary format.
@@ -32,9 +35,12 @@ def build_chat_prompt(
 
     messages: list[dict] = [{"role": "system", "content": system_content}]
 
-    if few_shot_question is not None and few_shot_answer is not None:
-        messages.append({"role": "user", "content": few_shot_question})
-        messages.append({"role": "assistant", "content": few_shot_answer})
+    examples = list(few_shot_examples) if few_shot_examples else []
+    if not examples and few_shot_question is not None and few_shot_answer is not None:
+        examples = [(few_shot_question, few_shot_answer)]
+    for example_question, example_answer in examples:
+        messages.append({"role": "user", "content": example_question})
+        messages.append({"role": "assistant", "content": example_answer})
 
     messages.append({"role": "user", "content": question.strip()})
     return messages

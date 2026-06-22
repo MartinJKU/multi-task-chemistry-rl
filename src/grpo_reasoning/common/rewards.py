@@ -13,6 +13,17 @@ _FORMAT_PATTERN = re.compile(
     re.DOTALL,
 )
 
+# Inner text of the reasoning block, used to score reasoning substance.
+_REASONING_PATTERN = re.compile(r"<reasoning>(.*?)</reasoning>", re.DOTALL)
+_WORD_PATTERN = re.compile(r"[A-Za-z0-9]+")
+
+# A genuine count/index rationale uses several distinct words and references
+# concrete numbers; the degenerate "<reasoning> aromatic_ring_index</reasoning>"
+# collapse seen in training has only the echoed key. These thresholds gate that
+# collapse without paying for runaway padding (credit is capped and concave).
+_MIN_UNIQUE_REASONING_TOKENS = 4
+_TARGET_UNIQUE_REASONING_TOKENS = 12
+
 
 def _completion_text(completion) -> str:
     """Normalize a completion object to text.
@@ -59,6 +70,62 @@ def soft_format_reward(completions, **_) -> list[float]:
         has_answer = "<answer>" in t and "</answer>" in t
         out.append(0.5 if (has_reasoning and has_answer) else 0.0)
     return out
+
+
+def _reasoning_text(text: str) -> str:
+    """Return the inner text of the first `<reasoning>...</reasoning>` block."""
+    match = _REASONING_PATTERN.search(text)
+    return match.group(1).strip() if match else ""
+
+
+def _reasoning_quality_score(reasoning: str) -> float:
+    """Score reasoning substance in [0, 1] to escape the empty-reasoning collapse.
+
+    GRPO with only format/correctness rewards converges to a degenerate optimum
+    that leaves `<reasoning>` empty (or echoes the answer key) and guesses, which
+    is fatal for tasks needing real per-molecule work (atom indexing, wide-range
+    counts). This signal rewards reasoning that contains several distinct words
+    and a concrete number, the minimal hallmark of an actual rationale.
+
+    The score is concave and capped so the model cannot farm it by padding: once
+    the reasoning has enough distinct tokens, extra length earns nothing.
+
+    Args:
+        reasoning: Inner text of the `<reasoning>` block.
+
+    Returns:
+        Quality score in [0, 1].
+    """
+    reasoning = reasoning.strip()
+    if not reasoning:
+        return 0.0
+    unique_tokens = {tok.lower() for tok in _WORD_PATTERN.findall(reasoning)}
+    if len(unique_tokens) < _MIN_UNIQUE_REASONING_TOKENS:
+        return 0.0
+    richness = min(1.0, len(unique_tokens) / _TARGET_UNIQUE_REASONING_TOKENS)
+    # Numbers are near-universal in genuine count/index rationales; prose with no
+    # numeric content earns only partial credit so pure padding stays cheap.
+    has_number = any(ch.isdigit() for ch in reasoning)
+    return richness if has_number else 0.5 * richness
+
+
+def make_reasoning_quality_reward(weight: float = 0.5) -> Callable:
+    """Create a reward for substantive (non-empty, non-echo) reasoning.
+
+    Args:
+        weight: Maximum reward for a fully substantive reasoning block.
+
+    Returns:
+        Reward function that scores the `<reasoning>` block of each completion.
+    """
+
+    def reasoning_quality_reward(completions, **_) -> list[float]:
+        """Score the reasoning substance of each completion."""
+        texts = [_completion_text(c) for c in completions]
+        return [weight * _reasoning_quality_score(_reasoning_text(t)) for t in texts]
+
+    reasoning_quality_reward.__name__ = "reasoning_quality_reward"
+    return reasoning_quality_reward
 
 
 def make_exact_match_reward(weight: float = 2.0) -> Callable:

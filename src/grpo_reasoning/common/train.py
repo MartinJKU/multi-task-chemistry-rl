@@ -17,6 +17,7 @@ from .rewards import (
     make_moleculariq_reward,
     make_moleculariq_shaped_reward,
     make_moleculariq_multitask_reward,
+    make_reasoning_quality_reward,
     soft_format_reward,
 )
 from .utils import load_tokenizer, set_seed
@@ -53,6 +54,10 @@ class TrainArgs:
         gradient_checkpointing: Whether to enable gradient checkpointing.
         optim: Trainer optimizer name.
         use_soft_format_reward: Whether to include loose format partial credit.
+        use_reasoning_quality_reward: Whether to reward substantive reasoning.
+            Breaks the empty-reasoning collapse that starves index/wide-range
+            count tasks of the per-molecule work they require.
+        reasoning_quality_weight: Maximum reward for substantive reasoning.
         correctness_weight: Reward weight for correctness.
         use_shaped_moleculariq_reward: Whether to add MolecularIQ partial credit.
         shaped_moleculariq_weight: Maximum reward for shaped MolecularIQ partial credit.
@@ -91,6 +96,8 @@ class TrainArgs:
     optim: str = "adamw_torch"
 
     use_soft_format_reward: bool = False
+    use_reasoning_quality_reward: bool = False
+    reasoning_quality_weight: float = 0.5
     correctness_weight: float = 2.0
     use_shaped_moleculariq_reward: bool = True
     shaped_moleculariq_weight: float = 1.0
@@ -265,6 +272,8 @@ def train(cfg: TrainArgs) -> str:
     reward_funcs = [format_reward, correctness]
     if cfg.use_soft_format_reward:
         reward_funcs.insert(0, soft_format_reward)
+    if cfg.use_reasoning_quality_reward:
+        reward_funcs.insert(0, make_reasoning_quality_reward(cfg.reasoning_quality_weight))
     if shaped_reward is not None:
         reward_funcs.insert(-1, shaped_reward)
 

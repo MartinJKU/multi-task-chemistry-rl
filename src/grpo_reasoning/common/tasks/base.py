@@ -16,14 +16,17 @@ class Task(ABC):
     Args:
         name: Registered task name.
         task_instructions: Additional system prompt instructions.
-        few_shot_question: Optional example user question.
-        few_shot_answer: Optional example assistant answer.
+        few_shot_question: Optional example user question (legacy single-shot).
+        few_shot_answer: Optional example assistant answer (legacy single-shot).
+        few_shot_examples: Optional list of (question, answer) pairs for
+            multi-shot prompting; takes precedence over the single-shot pair.
     """
 
     name: str
     task_instructions: str = ""
     few_shot_question: str | None = None
     few_shot_answer: str | None = None
+    few_shot_examples: list[tuple[str, str]] | None = None
 
     @abstractmethod
     def load_raw(self, split: str):
@@ -75,6 +78,7 @@ class Task(ABC):
             task_instructions=self.task_instructions,
             few_shot_question=self.few_shot_question,
             few_shot_answer=self.few_shot_answer,
+            few_shot_examples=self.few_shot_examples,
         )
 
     def to_grpo_dataset(
