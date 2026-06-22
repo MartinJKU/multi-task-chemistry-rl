@@ -126,6 +126,47 @@ Outputs land in `outputs/` (checkpoints) and `outputs/multitask_eval/<label>/sum
 rise above ~0 — that's the real signal at 0.5B, since the heatmap only shows
 exact-match accuracy.
 
+## 5. Evaluate
+
+`grpo-evaluate-multitask` scores a trained model on a suite **and** evaluates a
+base model once as a cached `baseline` reference, so the report shows lift over
+the untrained model. Eval regenerates the test set live from the cached SMILES
+pool, so it runs offline on a GPU node.
+
+```bash
+# 0.5B run: target = curriculum, baseline = Qwen2.5-0.5B (the default)
+sbatch slurm/evaluate.slurm
+
+# 1.5B run: target = curriculum_15b, baseline = Qwen2.5-1.5B
+PROJECT_ROOT=$WORK/grpo-reasoning-15b sbatch slurm/evaluate_1.5b.slurm
+```
+
+For the 1.5B model use `evaluate_1.5b.slurm`: it points at
+`outputs/miq-curriculum-15b-04-generation` and sets the baseline to
+**Qwen/Qwen2.5-1.5B-Instruct** with a distinct `baseline_15b` label — so its
+"lift over base" is apples-to-apples and nothing overwrites the 0.5B
+`baseline`/`curriculum` summaries. Point `PROJECT_ROOT` at the folder where the
+1.5B run wrote its `outputs/`. Add `EVAL_ALL_STAGES=1` to also score every stage
+(forgetting check).
+
+The underlying command, if you'd rather run it directly:
+
+```bash
+grpo-evaluate-multitask \
+    --config configs/multitask/miq_multitask_balanced.yaml \
+    --model outputs/miq-curriculum-15b-04-generation \
+    --model-label curriculum_15b \
+    --baseline-model Qwen/Qwen2.5-1.5B-Instruct \
+    --baseline-label baseline_15b \
+    --num-samples 200
+```
+
+Each eval writes `outputs/multitask_eval/<label>/summary.json`, and `grpo-report
+--outputs-dir outputs` aggregates every summary in that folder into the
+heatmap/CSV. To get a single 0.5B-vs-1.5B comparison, run both evals so their
+summaries (`curriculum`, `baseline`, `curriculum_15b`, `baseline_15b`) live under
+the same `outputs/multitask_eval/`, then run `grpo-report` once.
+
 ## Notes / gotchas
 
 - **Offline mode**: jobs export `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`,
