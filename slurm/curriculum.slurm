@@ -39,14 +39,34 @@ source "$VENV_DIR/bin/activate"
 cd "$PROJECT_ROOT"
 mkdir -p logs
 
+CURRICULUM_START_STAGE="${CURRICULUM_START_STAGE:-}"
+CURRICULUM_END_STAGE="${CURRICULUM_END_STAGE:-}"
+CURRICULUM_BASE_MODEL="${CURRICULUM_BASE_MODEL:-}"
+MAX_STEPS_PER_STAGE="${MAX_STEPS_PER_STAGE:-1500}"
+
 nvidia-smi
 # Fail fast if CUDA is not visible (otherwise training would silently run on CPU)
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA NOT available!'; print(f'[gpu] cuda=True device={torch.cuda.get_device_name(0)}')"
 
 # Datasets prebuilt -> this only trains. The A100-tuned base config decodes far
 # more completions in parallel to actually use the GPU (see miq_multitask_a100_train.yaml).
-# For a smoke test add: --max-steps-per-stage 20
-grpo-curriculum \
-    --config configs/multitask/miq_curriculum.yaml \
-    --base-train-config configs/multitask/miq_multitask_a100_train.yaml \
-    --max-steps-per-stage 1500
+cmd=(
+    grpo-curriculum
+    --config configs/multitask/miq_curriculum.yaml
+    --base-train-config configs/multitask/miq_multitask_a100_train.yaml
+    --max-steps-per-stage "$MAX_STEPS_PER_STAGE"
+)
+if [[ -n "$CURRICULUM_START_STAGE" ]]; then
+    cmd+=(--start-stage "$CURRICULUM_START_STAGE")
+fi
+if [[ -n "$CURRICULUM_END_STAGE" ]]; then
+    cmd+=(--end-stage "$CURRICULUM_END_STAGE")
+fi
+if [[ -n "$CURRICULUM_BASE_MODEL" ]]; then
+    cmd+=(--base-model "$CURRICULUM_BASE_MODEL")
+fi
+
+printf '[curriculum] command:'
+printf ' %q' "${cmd[@]}"
+printf '\n'
+"${cmd[@]}"

@@ -39,6 +39,7 @@ vllm = ["vllm>=0.6", "trl>=0.18"]
 [project.scripts]
 # Shared
 grpo-train = "grpo_reasoning.common.cli:train_main"
+grpo-sft = "grpo_reasoning.common.cli:sft_main"
 # Single-task pipeline
 grpo-preprocess = "grpo_reasoning.single_task.cli:preprocess_main"
 grpo-evaluate = "grpo_reasoning.single_task.cli:evaluate_main"

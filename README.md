@@ -84,6 +84,7 @@ wrappers shown below or through console commands:
 | Console command | Module |
 |-----------------|--------|
 | `grpo-train` | shared |
+| `grpo-sft` | shared SFT warm-start |
 | `grpo-preprocess`, `grpo-evaluate`, `grpo-plot-training` | single-task |
 | `grpo-preprocess-multitask`, `grpo-evaluate-multitask`, `grpo-curriculum`, `grpo-audit-moleculariq`, `grpo-report` | multitask |
 

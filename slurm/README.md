@@ -59,6 +59,12 @@ Two independent options:
 # Path B — the staged curriculum (one model: counts -> index -> generation)
 sbatch slurm/curriculum.slurm
 
+# Optional SFT warm-start path:
+# counts GRPO -> supervised index warm-start -> remaining GRPO stages
+sbatch --export=ALL,CURRICULUM_END_STAGE=01_counts slurm/curriculum.slurm
+sbatch slurm/sft_index_warmstart.slurm
+sbatch slurm/curriculum_from_sft.slurm
+
 # Path A — the adaptive/balanced/pooled comparison (your heatmap),
 #          now warm-started from counts + index difficulty filters
 sbatch slurm/strategies.slurm

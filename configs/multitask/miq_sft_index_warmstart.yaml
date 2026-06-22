@@ -1,0 +1,38 @@
+# Optional supervised warm start for index tasks.
+#
+# Intended flow:
+#   1) Train only curriculum stage 01_counts.
+#   2) Run this SFT config from outputs/miq-curriculum-01-counts.
+#   3) Continue GRPO from stage 02_simple_index with --base-model pointing here.
+
+model_name: outputs/miq-curriculum-01-counts
+dataset_path: data/miq_curriculum_02_simple_index_train
+output_dir: outputs/miq-sft-index-warmstart
+
+# Reuse the cached Stage 2 dataset but train only on supervised index targets.
+task_type_filter: [single_index, multi_index]
+task_id_filter: []
+num_samples:
+shuffle: true
+
+learning_rate: 2.0e-5
+per_device_train_batch_size: 16
+gradient_accumulation_steps: 2
+max_prompt_length: 384
+max_completion_length: 384
+num_train_epochs: 2
+max_steps: -1
+warmup_ratio: 0.05
+weight_decay: 0.0
+max_grad_norm: 1.0
+lr_scheduler_type: cosine
+
+seed: 43
+logging_steps: 10
+save_steps: 500
+bf16: true
+gradient_checkpointing: true
+optim: adamw_torch
+
+resume_from_checkpoint:
+save_on_interrupt: true

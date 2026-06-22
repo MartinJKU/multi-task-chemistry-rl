@@ -197,6 +197,11 @@ def curriculum_main() -> None:
         help="Start from this stage name instead of the first stage.",
     )
     p.add_argument(
+        "--end-stage",
+        default=None,
+        help="Stop after this stage name instead of running all remaining stages.",
+    )
+    p.add_argument(
         "--dataset-only",
         action="store_true",
         help="Only build curriculum datasets; do not train.",
@@ -212,6 +217,14 @@ def curriculum_main() -> None:
         default=None,
         help="Override the curriculum's base_train_config (e.g. an A100-tuned config).",
     )
+    p.add_argument(
+        "--base-model",
+        default=None,
+        help=(
+            "Override the model used for the first executed stage. Useful when "
+            "continuing from an SFT warm-start checkpoint with --start-stage."
+        ),
+    )
     args = p.parse_args()
 
     from .curriculum import run_curriculum_from_file
@@ -220,9 +233,11 @@ def curriculum_main() -> None:
         args.config,
         overwrite_datasets=args.overwrite_datasets,
         start_stage=args.start_stage,
+        end_stage=args.end_stage,
         dataset_only=args.dataset_only,
         max_steps_per_stage=args.max_steps_per_stage,
         base_train_config=args.base_train_config,
+        base_model=args.base_model,
     )
 
 

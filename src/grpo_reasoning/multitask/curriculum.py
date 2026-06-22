@@ -71,9 +71,11 @@ def run_curriculum(
     cfg: CurriculumConfig,
     overwrite_datasets: bool | None = None,
     start_stage: str | None = None,
+    end_stage: str | None = None,
     dataset_only: bool = False,
     max_steps_per_stage: int | None = None,
     base_train_config: str | None = None,
+    base_model: str | None = None,
 ) -> str | None:
     """Build datasets and train stages sequentially.
 
@@ -81,6 +83,7 @@ def run_curriculum(
         cfg: Curriculum configuration.
         overwrite_datasets: Optional command-line override for dataset rebuilds.
         start_stage: Optional stage name to start from.
+        end_stage: Optional stage name to stop after.
         dataset_only: If true, only build stage datasets.
         max_steps_per_stage: Optional training step cap for every stage.
 
@@ -96,6 +99,11 @@ def run_curriculum(
         if start_stage not in names:
             raise ValueError(f"Unknown start_stage={start_stage!r}. Available: {names}")
         stages = stages[names.index(start_stage) :]
+    if end_stage is not None:
+        names = [stage.name for stage in stages]
+        if end_stage not in names:
+            raise ValueError(f"Unknown end_stage={end_stage!r}. Available: {names}")
+        stages = stages[: names.index(end_stage) + 1]
 
     previous_output: str | None = None
     final_output: str | None = None
@@ -119,6 +127,8 @@ def run_curriculum(
 
         if previous_output is not None:
             train_cfg["model_name"] = previous_output
+        elif base_model is not None:
+            train_cfg["model_name"] = base_model
         elif cfg.base_model is not None:
             train_cfg["model_name"] = cfg.base_model
 
@@ -139,9 +149,11 @@ def run_curriculum_from_file(
     path: str | Path,
     overwrite_datasets: bool | None = None,
     start_stage: str | None = None,
+    end_stage: str | None = None,
     dataset_only: bool = False,
     max_steps_per_stage: int | None = None,
     base_train_config: str | None = None,
+    base_model: str | None = None,
 ) -> str | None:
     """Load and run a curriculum YAML file."""
     cfg = CurriculumConfig.from_dict(load_yaml(path))
@@ -149,7 +161,9 @@ def run_curriculum_from_file(
         cfg,
         overwrite_datasets=overwrite_datasets,
         start_stage=start_stage,
+        end_stage=end_stage,
         dataset_only=dataset_only,
         max_steps_per_stage=max_steps_per_stage,
         base_train_config=base_train_config,
+        base_model=base_model,
     )
