@@ -101,6 +101,51 @@ Outputs land in `outputs/` (checkpoints) and `outputs/multitask_eval/<label>/sum
 rise above ~0 — that's the real signal at 0.5B, since the heatmap only shows
 exact-match accuracy.
 
+## Running a second base model (Qwen3.5-0.8B) next to the 0.5B checkout
+
+You can compare `Qwen/Qwen3.5-0.8B` against the existing 0.5B runs **without a
+fresh setup**. The Qwen3 jobs reuse the same venv, the same `$WORK/hf_cache`,
+and the **same datasets** (datasets are model-independent), and they write to
+`*-qwen3` output directories so nothing the 0.5B runs produced is overwritten.
+
+Only one extra thing has to happen on an internet-connected login node: caching
+the new model.
+
+```bash
+# On a LOGIN node, in your existing checkout (pull the branch with the Qwen3 configs first)
+cd $WORK/grpo-reasoning
+git fetch origin claude/stoic-tesla-1hfhyu
+git checkout claude/stoic-tesla-1hfhyu      # or merge/cherry-pick the configs
+
+# Cache the Qwen3 base model into the shared HF cache (reuses your venv)
+bash slurm/cache_model_leonardo.sh          # defaults to Qwen/Qwen3.5-0.8B
+```
+
+Then submit the Qwen3 jobs exactly like the 0.5B ones — they're independent and
+can even queue at the same time:
+
+```bash
+sbatch slurm/strategies_qwen3.slurm   # pooled/balanced/adaptive on Qwen3
+sbatch slurm/curriculum_qwen3.slurm   # full staged curriculum on Qwen3
+```
+
+Set the `#SBATCH --account=` line in those two files the same way as the others.
+`grpo-report` discovers every eval summary under `outputs/multitask_eval`, so the
+final report shows the 0.5B and Qwen3 runs side by side.
+
+Notes specific to the larger model:
+
+- If the **exact HF repo id differs** from `Qwen/Qwen3.5-0.8B`, pass the real one
+  to the cache step (`bash slurm/cache_model_leonardo.sh Qwen/<id>`) and update
+  the `model_name` / `base_model` line in the six `*qwen3*` configs.
+- `curriculum_qwen3.slurm` reuses the A100-tuned base config
+  (`per_device_train_batch_size: 32`). The 0.8B model uses more memory than the
+  0.5B one, so if you hit OOM drop that to 16 in
+  `configs/multitask/miq_multitask_a100_train.yaml` (or point
+  `--base-train-config` at a copy with the smaller batch).
+- Smoke test first: edit the job to `--qos=boost_qos_dbg`, `--time=00:30:00`,
+  and append `--max-steps-per-stage 20` to the `grpo-curriculum` line.
+
 ## Notes / gotchas
 
 - **Offline mode**: jobs export `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`,
