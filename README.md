@@ -398,6 +398,66 @@ When you move to a larger Linux box with enough VRAM:
 - Bump `num_generations` and `per_device_train_batch_size`.
 - Optionally add `attn_implementation: flash_attention_2` in `model_init_kwargs`.
 
+## Comparing against another base model (Qwen3.5-0.8B)
+
+To check whether a larger base model helps, there is a parallel set of configs
+that swaps `Qwen/Qwen2.5-0.5B-Instruct` for `Qwen/Qwen3.5-0.8B`. They reuse the
+same preprocessed (model-independent) datasets and write to `*-qwen3` output
+directories, so they run side by side with the 0.5B runs without clobbering
+anything. Only the base model and output directories differ — every reward and
+hyperparameter is identical, so the comparison is fair.
+
+| Run | 0.5B config | Qwen3.5-0.8B config |
+|-----|-------------|---------------------|
+| Specialist baseline | `single_task/moleculariq_qwen05b.yaml` | `single_task/moleculariq_qwen3_08b.yaml` |
+| Counts warm-start root | `multitask/miq_curriculum_01_counts_train.yaml` | `multitask/miq_curriculum_01_counts_qwen3_train.yaml` |
+| Pooled | `multitask/miq_multitask_pooled_train.yaml` | `multitask/miq_multitask_pooled_qwen3_train.yaml` |
+| Balanced | `multitask/miq_multitask_balanced_train.yaml` | `multitask/miq_multitask_balanced_qwen3_train.yaml` |
+| Adaptive | `multitask/miq_multitask_adaptive_train.yaml` | `multitask/miq_multitask_adaptive_qwen3_train.yaml` |
+| Full curriculum | `multitask/miq_curriculum.yaml` | `multitask/miq_curriculum_qwen3.yaml` |
+
+The datasets are unchanged, so preprocess once (or reuse the data you already
+built for the 0.5B runs) and just point training at the `*_qwen3_train` configs.
+Example — the pooled multitask comparison:
+
+```powershell
+# Datasets already built for the 0.5B run are reused as-is; otherwise build them:
+python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_01_counts.yaml
+python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_multitask_pooled.yaml
+
+# Counts warm-start root, then pooled, on Qwen3.5-0.8B
+python scripts/train.py --config configs/multitask/miq_curriculum_01_counts_qwen3_train.yaml
+python scripts/train.py --config configs/multitask/miq_multitask_pooled_qwen3_train.yaml
+
+# Evaluate, using the Qwen3 base as the baseline reference
+python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_multitask_pooled.yaml `
+    --model outputs/miq-multitask-pooled-grpo-qwen3 --model-label pooled-qwen3 `
+    --baseline-model Qwen/Qwen3.5-0.8B --baseline-label baseline-qwen3
+```
+
+The full curriculum runs the same way as the 0.5B one, just with the Qwen3
+config:
+
+```powershell
+python scripts/multitask/run_curriculum.py --config configs/multitask/miq_curriculum_qwen3.yaml
+python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_multitask_balanced.yaml `
+    --model outputs/miq-curriculum-04-generation-qwen3 --model-label curriculum-qwen3 `
+    --baseline-model Qwen/Qwen3.5-0.8B --baseline-label baseline-qwen3
+```
+
+`plot_experiment_report.py` discovers the `*-qwen3` output folders automatically,
+so the report plots and CSVs will show both model sizes alongside each other.
+
+Two caveats worth knowing:
+
+- `Qwen/Qwen3.5-0.8B` is used verbatim as you requested; if the exact Hugging
+  Face repo id differs, change the `model_name` / `base_model` line in these
+  six configs (and pre-cache it in `slurm/setup_leonardo.sh` for offline nodes).
+- The adaptive run reuses the shared adaptive dataset by default. For a fully
+  faithful adaptive comparison, rebuild that dataset from the Qwen3 balanced
+  eval first — see the note at the top of
+  `configs/multitask/miq_multitask_adaptive_qwen3_train.yaml`.
+
 ## Tests
 
 ```powershell
