@@ -18,9 +18,11 @@
 # =============================================================================
 set -euo pipefail
 
-export PROJECT_ROOT="${PROJECT_ROOT:-$WORK/grpo-reasoning}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export VENV_DIR="${VENV_DIR:-$WORK/venvs/grpo-vllm}"
 export HF_HOME="${HF_HOME:-$WORK/hf_cache}"
+export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 PYTHON_MODULE="${PYTHON_MODULE:-python/3.11.6--gcc--8.5.0}"
 
 module purge

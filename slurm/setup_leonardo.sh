@@ -12,9 +12,11 @@
 set -euo pipefail
 
 # ---- adjust if you want different locations -------------------------------
-export PROJECT_ROOT="${PROJECT_ROOT:-$WORK/grpo-reasoning}"   # where you cloned the repo
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export VENV_DIR="${VENV_DIR:-$WORK/venvs/grpo}"               # venv lives in $WORK (NOT $HOME: quota)
 export HF_HOME="${HF_HOME:-$WORK/hf_cache}"                   # model + dataset cache (persistent)
+export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-$WORK/pip_cache}"       # keep pip cache out of $HOME
 PYTHON_MODULE="${PYTHON_MODULE:-python/3.11.6--gcc--8.5.0}"   # check with: module avail python
 PYTORCH_VERSION="${PYTORCH_VERSION:-2.7.0}"                   # newest stable PyTorch as of 2026-06-17
