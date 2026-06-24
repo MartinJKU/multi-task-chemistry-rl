@@ -56,3 +56,13 @@ printf '[sft] command:'
 printf ' %q' "${cmd[@]}"
 printf '\n'
 "${cmd[@]}"
+
+grpo-evaluate-multitask \
+    --config configs/multitask/miq_index_eval.yaml \
+    --model outputs/miq-sft-index-warmstart \
+    --model-label sft-index-warmstart \
+    --out-dir outputs/multitask_eval-sft-gate \
+    --no-baseline
+
+grpo-check-index-gate \
+    --summary outputs/multitask_eval-sft-gate/sft-index-warmstart/summary.json

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .smiles import format_atom_map
 
 
 @dataclass
@@ -24,6 +27,7 @@ class SFTArgs:
         default_factory=lambda: ["single_index", "multi_index"]
     )
     task_id_filter: list[str] = field(default_factory=list)
+    samples_per_task_family: int | None = None
     num_samples: int | None = None
     shuffle: bool = True
 
@@ -72,18 +76,24 @@ def _format_list(values: list[Any]) -> str:
 
 
 def _index_reasoning(parsed: dict[str, Any], smiles: str | None = None) -> str:
-    """Build a compact oracle rationale for index targets."""
+    """Build an algorithmic oracle rationale for index targets."""
     parts = [
-        "Use 0-based heavy-atom indices in SMILES order and return no extra atoms."
+        "Algorithm: scan the SMILES left to right and assign one 0-based index "
+        "to each atom token. Parentheses, bonds, stereochemistry symbols, and "
+        "ring-closure digits do not create atoms."
     ]
     if smiles:
-        parts.append(f"The molecule is {smiles}.")
+        parts.append(f"Molecule: {smiles}. Atom map: {format_atom_map(smiles)}.")
     for key, values in parsed.items():
         values = values if isinstance(values, list) else []
         if values:
-            parts.append(f"{key} contains {len(values)} atom(s): {_format_list(values)}.")
+            parts.append(
+                f"{key} selects exactly [{_format_list(values)}]; return no extra atoms."
+            )
         else:
-            parts.append(f"No atoms match {key}, so {key} is an empty list.")
+            parts.append(
+                f"{key} selects exactly []; no atoms match, so return an empty list."
+            )
     return " ".join(parts)
 
 
@@ -145,11 +155,40 @@ def _select_rows(dataset, cfg: SFTArgs):
     if cfg.task_id_filter:
         allowed_ids = set(cfg.task_id_filter)
         selected = selected.filter(lambda row: row.get("task_id") in allowed_ids)
+    if cfg.samples_per_task_family is not None:
+        if "task_id" not in selected.column_names:
+            raise ValueError(
+                "samples_per_task_family requires a task_id dataset column."
+            )
+        by_family: dict[str, list[int]] = {}
+        for index, task_id in enumerate(selected["task_id"]):
+            family = _canonical_task_family(str(task_id))
+            by_family.setdefault(family, []).append(index)
+        rng = random.Random(cfg.seed)
+        keep: list[int] = []
+        for family in sorted(by_family):
+            indices = by_family[family]
+            rng.shuffle(indices)
+            keep.extend(indices[: int(cfg.samples_per_task_family)])
+        selected = selected.select(keep)
     if cfg.shuffle:
         selected = selected.shuffle(seed=cfg.seed)
     if cfg.num_samples is not None:
         selected = selected.select(range(min(int(cfg.num_samples), len(selected))))
     return selected
+
+
+def _canonical_task_family(task_id: str) -> str:
+    """Collapse replay/nonempty aliases to one logical task family."""
+    family = task_id
+    changed = True
+    while changed:
+        changed = False
+        for suffix in ("_replay", "_nonempty"):
+            if family.endswith(suffix):
+                family = family[: -len(suffix)]
+                changed = True
+    return family
 
 
 class _CausalLMCollator:
@@ -219,9 +258,11 @@ def sft_train(cfg: SFTArgs) -> str:
         prompt_ids = tokenizer(
             prompt_text,
             add_special_tokens=False,
-            truncation=True,
-            max_length=cfg.max_prompt_length,
+            truncation=False,
         )["input_ids"]
+        # Chat prompts end with the real user question. Preserve that suffix if
+        # demonstrations make the prompt exceed the configured context budget.
+        prompt_ids = prompt_ids[-cfg.max_prompt_length :]
         completion_text = completion + (tokenizer.eos_token or "")
         completion_ids = tokenizer(
             completion_text,

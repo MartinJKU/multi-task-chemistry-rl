@@ -28,6 +28,14 @@ _TASK_TABLE_METRICS = (
     "most_common_answer_rate",
     "index_precision_mean",
     "index_recall_mean",
+    "index_gold_empty_rate",
+    "index_empty_gold_total",
+    "index_nonempty_total",
+    "index_empty_gold_accuracy",
+    "index_nonempty_accuracy",
+    "index_nonempty_partial_score_mean",
+    "index_nonempty_precision_mean",
+    "index_nonempty_recall_mean",
     "avg_index_pred_len",
     "avg_index_gold_len",
     "avg_index_false_positives",
@@ -36,8 +44,14 @@ _TASK_TABLE_METRICS = (
     "superset_rate",
     "subset_rate",
     "constraint_satisfied_fraction_mean",
+    "constraint_target_count",
+    "constraint_target_macro_accuracy",
+    "worst_constraint_target_accuracy",
     "ringless_when_ring_requested_rate",
     "canonical_smiles_distinct_rate",
+    "canonical_smiles_most_common_rate",
+    "successful_canonical_smiles_distinct_rate",
+    "successful_canonical_smiles_most_common_rate",
     "trivial_alkane_rate",
 )
 
@@ -111,6 +125,7 @@ def load_eval_summaries(eval_dir: Path | str) -> list[EvalSummary]:
         data = dict(data)
         data["_summary_path"] = str(path)
         data["_label"] = str(data.get("model_label") or path.parent.name)
+        _enrich_summary_from_eval_files(data, path.parent)
         summaries.append(data)
 
     return sorted(summaries, key=lambda row: row["_label"])
@@ -257,6 +272,69 @@ def plot_eval_comparisons(
                 "per_task_partial_score_heatmap.png",
             )
         )
+    if any(
+        "index_nonempty_accuracy" in task
+        for summary in summaries
+        for task in summary.get("tasks", [])
+    ):
+        paths.extend(
+            [
+                _plot_task_heatmap(
+                    summaries,
+                    out_dir,
+                    "index_nonempty_accuracy",
+                    "per_task_index_nonempty_accuracy_heatmap.png",
+                ),
+                _plot_task_heatmap(
+                    summaries,
+                    out_dir,
+                    "index_nonempty_partial_score_mean",
+                    "per_task_index_nonempty_partial_heatmap.png",
+                ),
+            ]
+        )
+    if any(
+        "constraint_target_macro_accuracy" in task
+        for summary in summaries
+        for task in summary.get("tasks", [])
+    ):
+        paths.extend(
+            [
+                _plot_task_heatmap(
+                    summaries,
+                    out_dir,
+                    "constraint_target_macro_accuracy",
+                    "per_task_constraint_target_macro_accuracy_heatmap.png",
+                ),
+                _plot_task_heatmap(
+                    summaries,
+                    out_dir,
+                    "worst_constraint_target_accuracy",
+                    "per_task_constraint_worst_target_accuracy_heatmap.png",
+                ),
+            ]
+        )
+    if any(
+        "canonical_smiles_distinct_rate" in task
+        for summary in summaries
+        for task in summary.get("tasks", [])
+    ):
+        paths.extend(
+            [
+                _plot_task_heatmap(
+                    summaries,
+                    out_dir,
+                    "canonical_smiles_distinct_rate",
+                    "per_task_canonical_smiles_distinct_heatmap.png",
+                ),
+                _plot_task_heatmap(
+                    summaries,
+                    out_dir,
+                    "canonical_smiles_most_common_rate",
+                    "per_task_canonical_smiles_most_common_heatmap.png",
+                ),
+            ]
+        )
 
     return paths
 
@@ -290,6 +368,170 @@ def _is_model_eval_summary(data: object) -> bool:
         and "model_label" in data
         and "macro_accuracy" in data
     )
+
+
+def _enrich_summary_from_eval_files(summary: EvalSummary, eval_dir: Path) -> None:
+    """Backfill newer report metrics from saved per-task eval dumps."""
+    for task in summary.get("tasks", []):
+        task_id = task.get("task_id")
+        if not task_id:
+            continue
+        eval_path = eval_dir / f"{task_id}_eval.json"
+        if not eval_path.exists():
+            continue
+        try:
+            data = json.loads(eval_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            print(f"[report] skip malformed eval JSON {eval_path}: {exc}")
+            continue
+
+        metrics = data.get("metrics")
+        if isinstance(metrics, dict):
+            for metric in _TASK_TABLE_METRICS:
+                if metric in metrics:
+                    task[metric] = metrics[metric]
+
+        results = data.get("results")
+        if not isinstance(results, list):
+            continue
+        diagnostic_rows = []
+        for row in results:
+            if not isinstance(row, dict) or not isinstance(row.get("diagnostics"), dict):
+                continue
+            diagnostics = dict(row["diagnostics"])
+            if "constraint_target_signature" not in diagnostics:
+                signature = _constraint_signature_from_gold(row.get("gold"))
+                if signature:
+                    diagnostics["constraint_target_signature"] = signature
+            diagnostic_rows.append(diagnostics)
+        if not diagnostic_rows:
+            continue
+        derived: dict[str, Any] = {}
+        _add_report_index_metrics(derived, diagnostic_rows)
+        _add_report_constraint_metrics(derived, diagnostic_rows)
+        for metric, value in derived.items():
+            task[metric] = value
+
+
+def _report_mean(rows: list[dict[str, Any]], key: str) -> float | None:
+    values = [row[key] for row in rows if key in row]
+    if not values:
+        return None
+    return sum(float(value) for value in values) / len(values)
+
+
+def _constraint_signature_from_gold(gold: Any) -> str | None:
+    if not isinstance(gold, str):
+        return None
+    try:
+        parsed = json.loads(gold)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+
+    parts = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        prop = item.get("property")
+        if not isinstance(prop, str):
+            continue
+        op = str(item.get("operator", "="))
+        value = item.get("value")
+        if isinstance(value, (int, float)):
+            value_text = f"{float(value):g}"
+        else:
+            value_text = str(value)
+        parts.append(f"{prop}{op}{value_text}")
+    return ";".join(parts) if parts else None
+
+
+def _add_report_index_metrics(
+    metrics: dict[str, Any],
+    diagnostic_rows: list[dict[str, Any]],
+) -> None:
+    index_rows = [row for row in diagnostic_rows if "index_empty_gold" in row]
+    if not index_rows:
+        return
+
+    empty_gold_rows = [
+        row for row in index_rows if bool(row.get("index_empty_gold", False))
+    ]
+    nonempty_gold_rows = [
+        row for row in index_rows if not bool(row.get("index_empty_gold", False))
+    ]
+    metrics["index_gold_empty_rate"] = len(empty_gold_rows) / len(index_rows)
+    metrics["index_empty_gold_total"] = len(empty_gold_rows)
+    metrics["index_nonempty_total"] = len(nonempty_gold_rows)
+    if empty_gold_rows:
+        metrics["index_empty_gold_accuracy"] = _report_mean(
+            empty_gold_rows,
+            "exact_match",
+        )
+    if nonempty_gold_rows:
+        metrics["index_nonempty_accuracy"] = _report_mean(
+            nonempty_gold_rows,
+            "exact_match",
+        )
+        metrics["index_nonempty_partial_score_mean"] = _report_mean(
+            nonempty_gold_rows,
+            "partial_score",
+        )
+        metrics["index_nonempty_precision_mean"] = _report_mean(
+            nonempty_gold_rows,
+            "index_precision",
+        )
+        metrics["index_nonempty_recall_mean"] = _report_mean(
+            nonempty_gold_rows,
+            "index_recall",
+        )
+
+
+def _add_report_constraint_metrics(
+    metrics: dict[str, Any],
+    diagnostic_rows: list[dict[str, Any]],
+) -> None:
+    canonical = [
+        str(row["canonical_smiles"])
+        for row in diagnostic_rows
+        if row.get("canonical_smiles")
+    ]
+    if canonical:
+        counts = Counter(canonical)
+        metrics["canonical_smiles_distinct_rate"] = len(counts) / len(canonical)
+        metrics["canonical_smiles_most_common_rate"] = max(counts.values()) / len(
+            canonical
+        )
+
+    successful_canonical = [
+        str(row["canonical_smiles"])
+        for row in diagnostic_rows
+        if row.get("canonical_smiles") and float(row.get("exact_match", 0.0)) >= 1.0
+    ]
+    if successful_canonical:
+        counts = Counter(successful_canonical)
+        metrics["successful_canonical_smiles_distinct_rate"] = len(counts) / len(
+            successful_canonical
+        )
+        metrics["successful_canonical_smiles_most_common_rate"] = max(
+            counts.values()
+        ) / len(successful_canonical)
+
+    target_groups: dict[str, list[float]] = defaultdict(list)
+    for row in diagnostic_rows:
+        signature = row.get("constraint_target_signature")
+        if signature:
+            target_groups[str(signature)].append(float(row.get("exact_match", 0.0)))
+    if target_groups:
+        target_accuracies = [
+            sum(scores) / len(scores) for scores in target_groups.values()
+        ]
+        metrics["constraint_target_count"] = len(target_groups)
+        metrics["constraint_target_macro_accuracy"] = sum(target_accuracies) / len(
+            target_accuracies
+        )
+        metrics["worst_constraint_target_accuracy"] = min(target_accuracies)
 
 
 def _find_trainer_state(output_dir: Path) -> Path | None:

@@ -1,23 +1,19 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import torch
 from datasets import Dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM
 
 from .prompts import extract_xml_answer
 from .rewards import moleculariq_diagnostics
 from .tasks import get_task
-from .utils import load_tokenizer
 
 
-@torch.no_grad()
 def evaluate(
     model_path: str,
     task_name: str,
@@ -41,6 +37,10 @@ def evaluate(
     Returns:
         Metrics dictionary containing accuracy, counts, model path, task, and timestamp.
     """
+    import torch
+    from transformers import AutoModelForCausalLM
+    from .utils import load_tokenizer
+
     task = get_task(task_name, **(task_kwargs or {}))
     ds: Dataset = task.to_grpo_dataset(split="test", num_samples=num_samples)
 
@@ -51,6 +51,7 @@ def evaluate(
     tokenizer = load_tokenizer(model_path, padding_side="left")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.truncation_side = "left"
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
@@ -81,13 +82,14 @@ def evaluate(
             truncation=True,
         ).to(model.device)
 
-        out = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            temperature=1.0,
-            pad_token_id=tokenizer.pad_token_id,
-        )
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                temperature=1.0,
+                pad_token_id=tokenizer.pad_token_id,
+            )
 
         gen_tokens = out[:, inputs["input_ids"].shape[1] :]
         decoded = tokenizer.batch_decode(gen_tokens, skip_special_tokens=True)
@@ -174,6 +176,34 @@ def _add_index_metrics(
     diagnostic_rows: list[dict[str, float | bool | str]],
 ) -> None:
     """Add precision/recall and over-prediction metrics for index tasks."""
+    index_rows = [row for row in diagnostic_rows if "index_empty_gold" in row]
+    empty_gold_rows = [
+        row for row in index_rows if bool(row.get("index_empty_gold", False))
+    ]
+    nonempty_gold_rows = [
+        row for row in index_rows if not bool(row.get("index_empty_gold", False))
+    ]
+    if index_rows:
+        metrics["index_gold_empty_rate"] = len(empty_gold_rows) / len(index_rows)
+        metrics["index_empty_gold_total"] = len(empty_gold_rows)
+        metrics["index_nonempty_total"] = len(nonempty_gold_rows)
+    if empty_gold_rows:
+        metrics["index_empty_gold_accuracy"] = _mean(empty_gold_rows, "exact_match")
+    if nonempty_gold_rows:
+        metrics["index_nonempty_accuracy"] = _mean(nonempty_gold_rows, "exact_match")
+        metrics["index_nonempty_partial_score_mean"] = _mean(
+            nonempty_gold_rows,
+            "partial_score",
+        )
+        metrics["index_nonempty_precision_mean"] = _mean(
+            nonempty_gold_rows,
+            "index_precision",
+        )
+        metrics["index_nonempty_recall_mean"] = _mean(
+            nonempty_gold_rows,
+            "index_recall",
+        )
+
     metric_map = {
         "index_precision": "index_precision_mean",
         "index_recall": "index_recall_mean",
@@ -221,3 +251,44 @@ def _add_constraint_metrics(
         metrics["canonical_smiles_distinct_rate"] = len(set(canonical)) / len(
             canonical
         )
+        metrics["canonical_smiles_most_common_rate"] = max(
+            Counter(canonical).values()
+        ) / len(canonical)
+
+    successful_canonical = [
+        str(row["canonical_smiles"])
+        for row in diagnostic_rows
+        if row.get("canonical_smiles") and float(row.get("exact_match", 0.0)) >= 1.0
+    ]
+    if successful_canonical:
+        metrics["successful_canonical_smiles_distinct_rate"] = len(
+            set(successful_canonical)
+        ) / len(successful_canonical)
+        metrics["successful_canonical_smiles_most_common_rate"] = max(
+            Counter(successful_canonical).values()
+        ) / len(successful_canonical)
+
+    target_groups: dict[str, list[float]] = defaultdict(list)
+    for row in diagnostic_rows:
+        signature = row.get("constraint_target_signature")
+        if not signature:
+            continue
+        target_groups[str(signature)].append(float(row.get("exact_match", 0.0)))
+    if target_groups:
+        target_breakdown = {
+            signature: {
+                "accuracy": sum(scores) / len(scores),
+                "correct": int(sum(scores)),
+                "total": len(scores),
+            }
+            for signature, scores in sorted(target_groups.items())
+        }
+        target_accuracies = [
+            float(item["accuracy"]) for item in target_breakdown.values()
+        ]
+        metrics["constraint_target_count"] = len(target_breakdown)
+        metrics["constraint_target_macro_accuracy"] = sum(target_accuracies) / len(
+            target_accuracies
+        )
+        metrics["worst_constraint_target_accuracy"] = min(target_accuracies)
+        metrics["constraint_target_breakdown"] = target_breakdown

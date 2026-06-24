@@ -17,6 +17,7 @@ from .rewards import (
     make_moleculariq_reward,
     make_moleculariq_shaped_reward,
     make_moleculariq_multitask_reward,
+    make_moleculariq_index_reasoning_reward,
     make_reasoning_quality_reward,
     soft_format_reward,
 )
@@ -58,10 +59,14 @@ class TrainArgs:
             Breaks the empty-reasoning collapse that starves index/wide-range
             count tasks of the per-molecule work they require.
         reasoning_quality_weight: Maximum reward for substantive reasoning.
+        use_index_reasoning_reward: Whether to reward a complete molecule-specific
+            atom map that is consistent with an index answer.
+        index_reasoning_weight: Maximum index-algorithm reasoning reward.
         correctness_weight: Reward weight for correctness.
         use_shaped_moleculariq_reward: Whether to add MolecularIQ partial credit.
         shaped_moleculariq_weight: Maximum reward for shaped MolecularIQ partial credit.
         smiles_validity_weight: Extra reward for valid generated SMILES.
+        smiles_nontrivial_weight: Extra reward for non-trivial valid generated SMILES.
         resume_from_checkpoint: Optional checkpoint path, or "latest".
         save_on_interrupt: Whether Ctrl+C should save an interrupt checkpoint.
         moleculariq_task_type: MolecularIQ task type used by the chemistry reward.
@@ -98,10 +103,13 @@ class TrainArgs:
     use_soft_format_reward: bool = False
     use_reasoning_quality_reward: bool = False
     reasoning_quality_weight: float = 0.5
+    use_index_reasoning_reward: bool = False
+    index_reasoning_weight: float = 0.5
     correctness_weight: float = 2.0
     use_shaped_moleculariq_reward: bool = True
     shaped_moleculariq_weight: float = 1.0
     smiles_validity_weight: float = 0.5
+    smiles_nontrivial_weight: float = 0.0
     resume_from_checkpoint: str | None = None
     save_on_interrupt: bool = True
 
@@ -237,6 +245,7 @@ def train(cfg: TrainArgs) -> str:
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.truncation_side = "left"
 
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model_name,
@@ -255,6 +264,7 @@ def train(cfg: TrainArgs) -> str:
             shaped_reward = make_moleculariq_shaped_reward(
                 weight=cfg.shaped_moleculariq_weight,
                 smiles_validity_weight=cfg.smiles_validity_weight,
+                smiles_nontrivial_weight=cfg.smiles_nontrivial_weight,
             )
         print("[train] reward   = moleculariq multitask dispatch")
     elif cfg.task_name == "moleculariq":
@@ -266,6 +276,7 @@ def train(cfg: TrainArgs) -> str:
                 task_type=cfg.moleculariq_task_type,
                 weight=cfg.shaped_moleculariq_weight,
                 smiles_validity_weight=cfg.smiles_validity_weight,
+                smiles_nontrivial_weight=cfg.smiles_nontrivial_weight,
             )
     else:
         correctness = make_exact_match_reward(cfg.correctness_weight)
@@ -274,6 +285,14 @@ def train(cfg: TrainArgs) -> str:
         reward_funcs.insert(0, soft_format_reward)
     if cfg.use_reasoning_quality_reward:
         reward_funcs.insert(0, make_reasoning_quality_reward(cfg.reasoning_quality_weight))
+    if cfg.use_index_reasoning_reward and cfg.task_name == "moleculariq":
+        reward_funcs.insert(
+            0,
+            make_moleculariq_index_reasoning_reward(
+                weight=cfg.index_reasoning_weight,
+                task_type=None if is_multitask_moleculariq else cfg.moleculariq_task_type,
+            ),
+        )
     if shaped_reward is not None:
         reward_funcs.insert(-1, shaped_reward)
 

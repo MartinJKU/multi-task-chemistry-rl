@@ -62,6 +62,13 @@ _CONSTRAINT_FEW_SHOT_BY_PROPERTY: dict[str, list[tuple[str, str]]] = {
             " ring_count = 2.</reasoning>\n"
             '<answer>{"smiles": "C1CCC2CCCCC2C1"}</answer>',
         ),
+        (
+            "Generate a molecule with exactly 3 rings. Return JSON with key "
+            '"smiles".',
+            "<reasoning>Anthracene has three fused aromatic rings. The SMILES"
+            " c1ccc2cc3ccccc3cc2c1 is valid and has ring_count = 3.</reasoning>\n"
+            '<answer>{"smiles": "c1ccc2cc3ccccc3cc2c1"}</answer>',
+        ),
     ],
     "carbon_atom_count": [
         (
@@ -78,6 +85,20 @@ _CONSTRAINT_FEW_SHOT_BY_PROPERTY: dict[str, list[tuple[str, str]]] = {
             "<reasoning>Cyclohexane, C1CCCCC1, has six carbon atoms and is valid,"
             " so it satisfies carbon_atom_count = 6.</reasoning>\n"
             '<answer>{"smiles": "C1CCCCC1"}</answer>',
+        ),
+        (
+            "Generate a molecule with exactly 7 carbon atoms. Return JSON with key "
+            '"smiles".',
+            "<reasoning>OCCCCCCC has seven carbon atoms after the oxygen. It is"
+            " valid and non-trivial while satisfying carbon_atom_count = 7.</reasoning>\n"
+            '<answer>{"smiles": "OCCCCCCC"}</answer>',
+        ),
+        (
+            "Generate a molecule with exactly 11 carbon atoms. Return JSON with key "
+            '"smiles".',
+            "<reasoning>OCCCCCCCCCCC has eleven carbon atoms after the oxygen. It"
+            " is valid and satisfies carbon_atom_count = 11.</reasoning>\n"
+            '<answer>{"smiles": "OCCCCCCCCCCC"}</answer>',
         ),
     ],
     "aromatic_ring_count": [
@@ -117,45 +138,107 @@ def _constraint_few_shot_examples(properties: list[str]) -> list[tuple[str, str]
 # instead teach two things the model must learn: (1) walk the SMILES atom by atom
 # so a leading chain pushes the ring to OFFSET indices, and (2) emit an EMPTY list
 # when no atom qualifies.
-_INDEX_FEW_SHOT: dict[str, list[tuple[str, str]]] = {
-    "single_index": [
+_INDEX_FEW_SHOT_BY_PROPERTY: dict[str, list[tuple[str, str]]] = {
+    "ring_index": [
         (
             'Report the ring_index for the molecule "CCC1CCC1". Return JSON with'
             ' key "ring_index" containing a list of 0-based atom indices (H excluded).',
-            "<reasoning>Index the heavy atoms of CCC1CCC1 in SMILES order: C=0,"
-            " C=1, C=2, C=3, C=4, C=5. The ring-closure digit 1 bonds atom 2 to"
-            " atom 5, so the ring is the 4 atoms 2,3,4,5; atoms 0 and 1 are a"
-            " leading ethyl chain and are excluded.</reasoning>\n"
+            "<reasoning>Scan atom tokens left to right; the ring digit creates a"
+            " bond, not an atom. Atom map: 0:C; 1:C; 2:C; 3:C; 4:C; 5:C."
+            " ring_index selects exactly [2, 3, 4, 5]; return no extra atoms."
+            "</reasoning>\n"
             '<answer>{"ring_index": [2, 3, 4, 5]}</answer>',
         ),
         (
             'Report the ring_index for the molecule "CCO". Return JSON with key'
             ' "ring_index" containing a list of 0-based atom indices (H excluded).',
-            "<reasoning>CCO has atoms C=0, C=1, O=2 and no ring-closure digits, so"
-            " no atom belongs to a ring and the list is empty.</reasoning>\n"
+            "<reasoning>Atom map: 0:C; 1:C; 2:O. CCO has no ring closure, so"
+            " ring_index selects exactly [].</reasoning>\n"
             '<answer>{"ring_index": []}</answer>',
         ),
     ],
-    "multi_index": [
+    "aromatic_ring_index": [
         (
-            'For "CCc1ccccc1", report ring_index and aromatic_ring_index as JSON'
-            " lists of 0-based atom indices.",
-            "<reasoning>Index CCc1ccccc1 atom by atom: C=0, C=1, then the aromatic"
-            " ring c1ccccc1 is atoms 2,3,4,5,6,7. Atoms 0,1 are an ethyl chain, so"
-            " they are in neither list. The 6 ring atoms 2-7 are all in a ring and"
-            " all aromatic.</reasoning>\n"
-            '<answer>{"aromatic_ring_index": [2, 3, 4, 5, 6, 7],'
-            ' "ring_index": [2, 3, 4, 5, 6, 7]}</answer>',
+            'Report the aromatic_ring_index for "CCc1ccccc1" as a JSON list of '
+            "0-based atom indices.",
+            "<reasoning>Scan left to right and count only atom tokens. Atom map:"
+            " 0:C; 1:C; 2:c; 3:c; 4:c; 5:c; 6:c; 7:c. The aromatic ring is"
+            " exactly atoms 2 through 7.</reasoning>\n"
+            '<answer>{"aromatic_ring_index": [2, 3, 4, 5, 6, 7]}</answer>',
         ),
         (
-            'For "CC(=O)O", report ring_index and aromatic_ring_index as JSON lists'
-            " of 0-based atom indices.",
-            "<reasoning>CC(=O)O has atoms C=0, C=1, O=2, O=3 and no ring at all, so"
-            " both lists are empty.</reasoning>\n"
-            '<answer>{"aromatic_ring_index": [], "ring_index": []}</answer>',
+            'Report the aromatic_ring_index for "C1CCCCC1" as JSON.',
+            "<reasoning>Atom map: 0:C; 1:C; 2:C; 3:C; 4:C; 5:C. Ring digits"
+            " create bonds, not atoms. These atoms form a non-aromatic ring, so"
+            " aromatic_ring_index selects exactly [].</reasoning>\n"
+            '<answer>{"aromatic_ring_index": []}</answer>',
+        ),
+    ],
+    "carbon_atom_index": [
+        (
+            'Report the carbon_atom_index for "COC(=O)N" as JSON.',
+            "<reasoning>Scan atom tokens and ignore parentheses and bond symbols."
+            " Atom map: 0:C; 1:O; 2:C; 3:O; 4:N. Select the entries labelled C,"
+            " which are exactly 0 and 2.</reasoning>\n"
+            '<answer>{"carbon_atom_index": [0, 2]}</answer>',
+        ),
+        (
+            'Report the carbon_atom_index for "NNO" as JSON.',
+            "<reasoning>Atom map: 0:N; 1:N; 2:O. No atom token is carbon, so"
+            " carbon_atom_index selects exactly [].</reasoning>\n"
+            '<answer>{"carbon_atom_index": []}</answer>',
+        ),
+    ],
+    "hetero_atom_index": [
+        (
+            'Report the hetero_atom_index for "CC(=O)NCl" as JSON.',
+            "<reasoning>Scan atom tokens, treating Cl as one atom. Atom map:"
+            " 0:C; 1:C; 2:O; 3:N; 4:Cl. Heteroatoms are the non-carbon atoms"
+            " O, N, and Cl, at exactly 2, 3, and 4.</reasoning>\n"
+            '<answer>{"hetero_atom_index": [2, 3, 4]}</answer>',
+        ),
+        (
+            'Report the hetero_atom_index for "CCC" as JSON.',
+            "<reasoning>Atom map: 0:C; 1:C; 2:C. Every atom is carbon, so"
+            " hetero_atom_index selects exactly [].</reasoning>\n"
+            '<answer>{"hetero_atom_index": []}</answer>',
         ),
     ],
 }
+
+_MULTI_INDEX_FEW_SHOT: list[tuple[str, str]] = [
+    (
+        'For "CCc1ccccc1", report ring_index and aromatic_ring_index as JSON'
+        " lists of 0-based atom indices.",
+        "<reasoning>Scan atom tokens left to right. Atom map: 0:C; 1:C; 2:c;"
+        " 3:c; 4:c; 5:c; 6:c; 7:c. ring_index selects exactly"
+        " [2, 3, 4, 5, 6, 7]. aromatic_ring_index selects exactly"
+        " [2, 3, 4, 5, 6, 7].</reasoning>\n"
+        '<answer>{"aromatic_ring_index": [2, 3, 4, 5, 6, 7],'
+        ' "ring_index": [2, 3, 4, 5, 6, 7]}</answer>',
+    ),
+    (
+        'For "CC(=O)O", report ring_index and aromatic_ring_index as JSON lists'
+        " of 0-based atom indices.",
+        "<reasoning>Parentheses and = do not create atoms. Atom map: 0:C; 1:C;"
+        " 2:O; 3:O. ring_index selects exactly []. aromatic_ring_index selects"
+        " exactly [].</reasoning>\n"
+        '<answer>{"aromatic_ring_index": [], "ring_index": []}</answer>',
+    ),
+]
+
+
+def _index_few_shot_examples(
+    task_type: str,
+    properties: list[str],
+) -> list[tuple[str, str]]:
+    """Return demonstrations that match the requested index property."""
+    if task_type == "multi_index":
+        return list(_MULTI_INDEX_FEW_SHOT)
+    examples: list[tuple[str, str]] = []
+    for prop in properties:
+        examples.extend(_INDEX_FEW_SHOT_BY_PROPERTY.get(prop, []))
+    return examples or list(_INDEX_FEW_SHOT_BY_PROPERTY["ring_index"])
 
 
 def _flatten_answer_values(value) -> list:
@@ -326,8 +409,14 @@ class MolecularIQTask(Task):
                 self.task_type, self.system_prompt_style
             )
 
-        if self.few_shot_examples is None and self.task_type in _INDEX_FEW_SHOT:
-            self.few_shot_examples = list(_INDEX_FEW_SHOT[self.task_type])
+        if self.few_shot_examples is None and self.task_type in {
+            "single_index",
+            "multi_index",
+        }:
+            self.few_shot_examples = _index_few_shot_examples(
+                self.task_type,
+                self.properties,
+            )
         elif (
             self.few_shot_examples is None
             and self.task_type == "constraint_generation"

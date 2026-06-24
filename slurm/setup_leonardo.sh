@@ -103,9 +103,18 @@ PY
 #    `--dataset-only` builds all 4 curriculum stage datasets, INCLUDING
 #    data/miq_curriculum_01_counts_train (stage 1) which the strategy runs reuse
 #    as their counts warm-start dataset -- so we do NOT rebuild it separately.
-grpo-curriculum --config configs/multitask/miq_curriculum.yaml --dataset-only
-grpo-preprocess-multitask --config configs/multitask/miq_multitask_balanced.yaml
-grpo-preprocess-multitask --config configs/multitask/miq_multitask_pooled.yaml
-grpo-preprocess-multitask --config configs/multitask/miq_multitask_adaptive.yaml
+grpo-curriculum \
+    --config configs/multitask/miq_curriculum.yaml \
+    --dataset-only \
+    --overwrite-datasets
+grpo-preprocess-multitask \
+    --config configs/multitask/miq_multitask_balanced.yaml \
+    --overwrite
+grpo-preprocess-multitask \
+    --config configs/multitask/miq_multitask_pooled.yaml \
+    --overwrite
+grpo-preprocess-multitask \
+    --config configs/multitask/miq_multitask_adaptive.yaml \
+    --overwrite
 
 echo "[setup] DONE. Now edit the #SBATCH --account line in the .slurm files and submit."

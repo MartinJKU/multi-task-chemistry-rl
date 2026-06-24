@@ -304,7 +304,7 @@ latest checkpoint under each output folder, reads model summaries from
 New evaluation files also include diagnostic partial metrics:
 
 - `partial_score_mean`: verifier-derived partial score before exact-match
-  thresholding (numeric closeness, index Jaccard overlap, or constraint
+  thresholding (sharp numeric closeness, precision-biased index overlap, or constraint
   satisfaction). For set-valued index tasks this is the more informative signal,
   since exact-match accuracy stays low even when the model is mostly right.
 - `distinct_answer_rate`: fraction of unique extracted answers. This is a
@@ -335,31 +335,35 @@ Curriculum follows the same preprocess/train/eval pattern as the other
 approaches, but each stage has its own dataset and train config. Later train
 configs set `model_name` to the previous stage output directory.
 
+Cached multitask datasets carry a fingerprint of the effective YAML. Curriculum
+training refuses to reuse a stale dataset, so after changing tasks, filters, or
+sample counts rebuild with `--overwrite`/`--overwrite-datasets`.
+
 Stage 1: count foundations
 
 ```powershell
-python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_01_counts.yaml
+python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_01_counts.yaml --overwrite
 python scripts/train.py --config configs/multitask/miq_curriculum_01_counts_train.yaml
 ```
 
 Stage 2: simple index tasks with count replay
 
 ```powershell
-python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_02_simple_index.yaml
+python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_02_simple_index.yaml --overwrite
 python scripts/train.py --config configs/multitask/miq_curriculum_02_simple_index_train.yaml
 ```
 
 Stage 3: full index tasks with replay
 
 ```powershell
-python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_03_full_index.yaml
+python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_03_full_index.yaml --overwrite
 python scripts/train.py --config configs/multitask/miq_curriculum_03_full_index_train.yaml
 ```
 
 Stage 4: constraint generation with replay
 
 ```powershell
-python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_04_generation.yaml
+python scripts/multitask/preprocess_multitask.py --config configs/multitask/miq_curriculum_04_generation.yaml --overwrite
 python scripts/train.py --config configs/multitask/miq_curriculum_04_generation_train.yaml
 ```
 
@@ -386,6 +390,22 @@ The default curriculum stages are:
 | `02_simple_index` | Shorter SMILES and shorter index lists, plus count replay. |
 | `03_full_index` | Full index tasks and multi-index with count replay. |
 | `04_generation` | Constraint generation with count/index replay. |
+
+The recommended index path inserts an algorithmic SFT warm-start between
+Stages 1 and 2. Its targets enumerate every SMILES atom token (`0:C; 1:O; ...`)
+before selecting indices, and each logical index family is capped equally:
+
+```powershell
+python scripts/sft.py --config configs/multitask/miq_sft_index_warmstart.yaml
+python scripts/multitask/evaluate_multitask.py --config configs/multitask/miq_index_eval.yaml `
+    --model outputs/miq-sft-index-warmstart --model-label sft-index-warmstart `
+    --out-dir outputs/multitask_eval-sft-gate --no-baseline
+grpo-check-index-gate --summary outputs/multitask_eval-sft-gate/sft-index-warmstart/summary.json
+```
+
+The gate rejects checkpoints with low exact/partial performance, poor empty-list
+accuracy, or a dominant repeated answer. GRPO uses an atom-map consistency
+reward rather than the former lexical reasoning-length reward.
 
 `scripts/multitask/run_curriculum.py --config configs/multitask/miq_curriculum.yaml`
 is still available as a convenience wrapper that runs all stages in order, but

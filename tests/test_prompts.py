@@ -48,6 +48,21 @@ def test_index_task_uses_multi_shot_with_empty_list_demo():
     assert "[]" in demo_answers  # empty-list case is demonstrated
 
 
+def test_single_index_demos_match_requested_property():
+    """Carbon indexing must not receive only ring-index demonstrations."""
+    task = get_task(
+        "moleculariq",
+        task_type="single_index",
+        properties=["carbon_atom_index"],
+    )
+    demo_text = " ".join(
+        question + answer for question, answer in (task.few_shot_examples or [])
+    )
+    assert "carbon_atom_index" in demo_text
+    assert "Atom map:" in demo_text
+    assert "ring_index" not in demo_text
+
+
 def test_count_task_keeps_single_shot_demo():
     """Verify non-index tasks retain the legacy single-shot demonstration."""
     task = get_task("moleculariq", task_type="single_count", properties=["ring_count"])

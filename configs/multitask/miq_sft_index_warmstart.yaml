@@ -6,20 +6,22 @@
 #   3) Continue GRPO from stage 02_simple_index with --base-model pointing here.
 
 model_name: outputs/miq-curriculum-01-counts
-dataset_path: data/miq_curriculum_02_simple_index_train
+dataset_path: data/miq_curriculum_03_full_index_train
 output_dir: outputs/miq-sft-index-warmstart
 
-# Reuse the cached Stage 2 dataset but train only on supervised index targets.
+# Use every index family, including multi-index, but cap each logical family
+# equally so aliases such as *_nonempty cannot dominate supervised learning.
 task_type_filter: [single_index, multi_index]
 task_id_filter: []
+samples_per_task_family: 1500
 num_samples:
 shuffle: true
 
 learning_rate: 2.0e-5
 per_device_train_batch_size: 16
 gradient_accumulation_steps: 2
-max_prompt_length: 384
-max_completion_length: 384
+max_prompt_length: 512
+max_completion_length: 512
 num_train_epochs: 2
 max_steps: -1
 warmup_ratio: 0.05

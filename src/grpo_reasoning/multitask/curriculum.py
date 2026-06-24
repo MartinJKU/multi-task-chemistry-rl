@@ -6,7 +6,11 @@ from typing import Any
 
 from ..common.train import TrainArgs, train
 from ..common.utils import load_yaml
-from .dataset import MultitaskDatasetConfig, build_and_save_multitask
+from .dataset import (
+    MultitaskDatasetConfig,
+    build_and_save_multitask,
+    validate_saved_multitask_dataset,
+)
 
 
 @dataclass
@@ -113,6 +117,7 @@ def run_curriculum(
         out_dir = Path(ds_cfg.out_dir)
         if out_dir.exists() and not rebuild:
             # Datasets were pre-built (e.g. on a login node); reuse them.
+            validate_saved_multitask_dataset(out_dir, ds_cfg)
             print(f"[curriculum] reusing existing dataset at {out_dir}")
             dataset_path: Path | str = out_dir
         else:

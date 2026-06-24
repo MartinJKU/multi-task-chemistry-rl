@@ -47,6 +47,9 @@ if [[ ! -d outputs/miq-sft-index-warmstart ]]; then
     exit 2
 fi
 
+grpo-check-index-gate \
+    --summary outputs/multitask_eval-sft-gate/sft-index-warmstart/summary.json
+
 grpo-curriculum \
     --config configs/multitask/miq_curriculum.yaml \
     --base-train-config configs/multitask/miq_multitask_a100_train.yaml \

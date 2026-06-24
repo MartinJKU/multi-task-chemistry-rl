@@ -1,6 +1,9 @@
 beta: 0.005
 bf16: true
-correctness_weight: 2.0
+correctness_weight: 4.0
+use_index_reasoning_reward: true
+index_reasoning_weight: 0.5
+shaped_moleculariq_weight: 0.75
 dataset_path: data/miq_si_aromatic_ring_train
 gradient_accumulation_steps: 4
 gradient_checkpointing: true
@@ -9,7 +12,7 @@ logging_steps: 1
 lr_scheduler_type: cosine
 max_completion_length: 384
 max_grad_norm: 0.1
-max_prompt_length: 384
+max_prompt_length: 512
 max_steps: -1
 model_name: Qwen/Qwen2.5-0.5B-Instruct
 moleculariq_task_type: single_index

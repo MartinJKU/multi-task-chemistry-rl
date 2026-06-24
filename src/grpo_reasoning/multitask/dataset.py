@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import random
+import shutil
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -385,10 +388,10 @@ def build_and_save_multitask(
         raise FileExistsError(f"{out_dir} already exists. Pass --overwrite to rebuild.")
 
     ds = build_moleculariq_multitask_dataset(cfg)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    ds.save_to_disk(str(out_dir))
-
+    config_payload = _dataset_config_payload(cfg)
     manifest = {
+        "config_fingerprint": _dataset_config_fingerprint(cfg),
+        "config": config_payload,
         "strategy": cfg.strategy,
         "split": cfg.split,
         "seed": cfg.seed,
@@ -410,8 +413,86 @@ def build_and_save_multitask(
             for spec in cfg.tasks
         ],
     }
-    (out_dir / "multitask_manifest.json").write_text(
+    temp_dir = out_dir.with_name(f"{out_dir.name}.rebuild-{uuid.uuid4().hex[:8]}")
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+    temp_dir.parent.mkdir(parents=True, exist_ok=True)
+    ds.save_to_disk(str(temp_dir))
+    (temp_dir / "multitask_manifest.json").write_text(
         json.dumps(manifest, indent=2),
         encoding="utf-8",
     )
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    temp_dir.rename(out_dir)
     return out_dir
+
+
+def _dataset_config_payload(cfg: MultitaskDatasetConfig) -> dict[str, Any]:
+    """Return the training-relevant dataset configuration in canonical form."""
+    return {
+        "strategy": cfg.strategy,
+        "split": cfg.split,
+        "seed": cfg.seed,
+        "total_samples": cfg.total_samples,
+        "samples_per_task": cfg.samples_per_task,
+        "shuffle": cfg.shuffle,
+        "adaptive_metrics_path": cfg.adaptive_metrics_path,
+        "adaptive_accuracy_key": cfg.adaptive_accuracy_key,
+        "adaptive_floor": cfg.adaptive_floor,
+        "adaptive_temperature": cfg.adaptive_temperature,
+        "tasks": [
+            {
+                "task_id": spec.task_id,
+                "task_type": spec.task_type,
+                "properties": list(spec.properties),
+                "num_samples": spec.num_samples,
+                "sampling_weight": spec.sampling_weight,
+                "seed": spec.seed,
+                "system_prompt_style": spec.system_prompt_style,
+                "constraint_operator": spec.constraint_operator,
+                "filters": spec.filters or {},
+                "candidate_multiplier": spec.candidate_multiplier,
+            }
+            for spec in cfg.tasks
+        ],
+    }
+
+
+def _dataset_config_fingerprint(cfg: MultitaskDatasetConfig) -> str:
+    """Hash the effective dataset config to detect stale cached datasets."""
+    encoded = json.dumps(
+        _dataset_config_payload(cfg),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_saved_multitask_dataset(
+    path: str | Path,
+    cfg: MultitaskDatasetConfig,
+) -> None:
+    """Reject a cached dataset that was built from a different configuration."""
+    manifest_path = Path(path) / "multitask_manifest.json"
+    if not manifest_path.exists():
+        raise ValueError(
+            f"Cached dataset {path} has no multitask_manifest.json. "
+            "Rebuild it with --overwrite-datasets."
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Cached dataset manifest is malformed: {manifest_path}. "
+            "Rebuild it with --overwrite-datasets."
+        ) from exc
+    expected = _dataset_config_fingerprint(cfg)
+    actual = manifest.get("config_fingerprint")
+    if actual != expected:
+        raise ValueError(
+            f"Cached dataset {path} does not match the current curriculum config "
+            f"(expected fingerprint {expected[:12]}, found "
+            f"{str(actual)[:12] or 'missing'}). Rebuild with "
+            "--overwrite-datasets before training."
+        )

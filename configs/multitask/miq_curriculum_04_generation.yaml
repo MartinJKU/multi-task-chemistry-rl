@@ -22,6 +22,26 @@ tasks:
     properties: [fused_ring_count]
     num_samples: 300
 
+  - task_id: sc_carbon_atom_replay
+    task_type: single_count
+    properties: [carbon_atom_count]
+    num_samples: 300
+
+  - task_id: sc_hetero_atom_replay
+    task_type: single_count
+    properties: [hetero_atom_count]
+    num_samples: 300
+
+  - task_id: sc_hba_replay
+    task_type: single_count
+    properties: [hba_count]
+    num_samples: 300
+
+  - task_id: sc_rotatable_bond_replay
+    task_type: single_count
+    properties: [rotatable_bond_count]
+    num_samples: 300
+
   - task_id: mc_topology_replay
     task_type: multi_count
     properties: [ring_count, aromatic_ring_count, fused_ring_count]
@@ -41,6 +61,16 @@ tasks:
       max_smiles_length: 90
       max_answer_list_length: 10
 
+  - task_id: si_ring_nonempty_replay
+    task_type: single_index
+    properties: [ring_index]
+    num_samples: 400
+    candidate_multiplier: 12
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+      require_nonempty_list: true
+
   - task_id: si_aromatic_ring_replay
     task_type: single_index
     properties: [aromatic_ring_index]
@@ -49,6 +79,16 @@ tasks:
     filters:
       max_smiles_length: 90
       max_answer_list_length: 10
+
+  - task_id: si_aromatic_ring_nonempty_replay
+    task_type: single_index
+    properties: [aromatic_ring_index]
+    num_samples: 400
+    candidate_multiplier: 12
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+      require_nonempty_list: true
 
   - task_id: si_carbon_atom_replay
     task_type: single_index
@@ -68,6 +108,16 @@ tasks:
       max_smiles_length: 90
       max_answer_list_length: 10
 
+  - task_id: si_hetero_atom_nonempty_replay
+    task_type: single_index
+    properties: [hetero_atom_index]
+    num_samples: 400
+    candidate_multiplier: 12
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+      require_nonempty_list: true
+
   - task_id: mi_ring_aromatic_replay
     task_type: multi_index
     properties: [ring_index, aromatic_ring_index]
@@ -76,6 +126,16 @@ tasks:
     filters:
       max_smiles_length: 90
       max_answer_list_length: 10
+
+  - task_id: mi_ring_aromatic_nonempty_replay
+    task_type: multi_index
+    properties: [ring_index, aromatic_ring_index]
+    num_samples: 500
+    candidate_multiplier: 12
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+      min_answer_list_length: 1
 
   # Cap targets to reachable values so exact satisfaction is achievable (e.g.
   # carbon_count = N is solvable by a chain of N carbons). Same caps are used in

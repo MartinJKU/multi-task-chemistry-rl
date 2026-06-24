@@ -3,6 +3,7 @@ from __future__ import annotations
 from grpo_reasoning.common.rewards import (
     format_reward,
     make_exact_match_reward,
+    make_moleculariq_index_reasoning_reward,
     make_moleculariq_shaped_reward,
     make_reasoning_quality_reward,
     moleculariq_diagnostics,
@@ -100,6 +101,29 @@ def test_reasoning_quality_caps_so_padding_does_not_pay():
     assert reward(completions=[padded]) == [0.5]
 
 
+def test_index_reasoning_reward_requires_actual_atom_map_and_answer_consistency():
+    reward = make_moleculariq_index_reasoning_reward(weight=0.5)
+    good = _conv(
+        "<reasoning>Algorithm: scan left to right. Molecule: CC(=O)NCl."
+        " Atom map: 0:C; 1:C; 2:O; 3:N; 4:Cl."
+        " hetero_atom_index selects exactly [2, 3, 4]; return no extra atoms."
+        "</reasoning>\n"
+        '<answer>{"hetero_atom_index": [2, 3, 4]}</answer>'
+    )
+    generic = _conv(
+        "<reasoning>Atom map: 0:C; 1:C; 2:C; 3:C; 4:C."
+        " hetero_atom_index selects exactly [2, 3, 4].</reasoning>\n"
+        '<answer>{"hetero_atom_index": [2, 3, 4]}</answer>'
+    )
+    out = reward(
+        completions=[good, generic],
+        task_type=["single_index", "single_index"],
+        smiles=["CC(=O)NCl", "CC(=O)NCl"],
+    )
+    assert out[0] == 0.5
+    assert out[1] < out[0]
+
+
 def test_correctness_reward_exact_match():
     """Verify exact-match reward scores matching extracted answers.
 
@@ -137,7 +161,7 @@ def test_moleculariq_shaped_count_closeness():
     reward = make_moleculariq_shaped_reward(task_type="single_count", weight=1.0)
     completions = [_conv('<reasoning>x</reasoning>\n<answer>{"ring_count": 8}</answer>')]
     out = reward(completions=completions, answer=['{"ring_count": 10}'])
-    assert 0.8 < out[0] < 0.9
+    assert out == [1 / 3]
 
 
 def test_moleculariq_shaped_multi_count_averages_keys():
@@ -163,8 +187,8 @@ def test_moleculariq_shaped_index_overlap():
         _conv('<reasoning>x</reasoning>\n<answer>{"ring_index": [0, 1, 9]}</answer>')
     ]
     out = reward(completions=completions, answer=['{"ring_index": [0, 1, 2]}'])
-    # Tversky: TP=2, FP=1, FN=1 -> 2 / (2 + 1.5 + 0.5)
-    assert out == [2 / 4]
+    # Tversky: TP=2, FP=1, FN=1 -> 2 / (2 + 3 + 1)
+    assert out == [2 / 6]
 
 
 def test_shaped_index_overlap_punishes_overprediction():
@@ -181,8 +205,23 @@ def test_shaped_index_overlap_punishes_overprediction():
         )
     ]
     out = reward(completions=dump, answer=['{"ring_index": [0, 1, 2]}'])
-    # Precision-biased Tversky: TP=3, FP=7, FN=0 -> 3 / (3 + 10.5)
-    assert out[0] == 3 / 13.5
+    # Precision-biased Tversky: TP=3, FP=7, FN=0 -> 3 / (3 + 21)
+    assert out[0] == 3 / 24
+
+
+def test_shaped_index_penalizes_contiguous_guess_for_sparse_target():
+    reward = make_moleculariq_shaped_reward(task_type="single_index", weight=1.0)
+    out = reward(
+        completions=[
+            _conv(
+                "<reasoning>x</reasoning>\n"
+                '<answer>{"carbon_atom_index": [0, 1, 2, 3, 4]}</answer>'
+            )
+        ],
+        answer=['{"carbon_atom_index": [0, 2, 4]}'],
+    )
+    # Base overlap is 3 / (3 + 3*2), then the contiguous shortcut gets x0.1.
+    assert out == [(3 / 9) * 0.1]
 
 
 def test_shaped_index_empty_gold_rejects_nonempty_prediction():
@@ -219,13 +258,55 @@ def test_moleculariq_shaped_constraint_valid_smiles_if_rdkit_available():
     assert out == [1.5]
 
 
+def test_constraint_nontrivial_smiles_bonus_if_rdkit_available():
+    """Verify non-trivial generated SMILES can receive an optional bonus."""
+    try:
+        import rdkit  # noqa: F401
+    except ImportError:
+        return
+
+    reward = make_moleculariq_shaped_reward(
+        task_type="constraint_generation",
+        weight=1.0,
+        smiles_validity_weight=0.1,
+        smiles_nontrivial_weight=0.2,
+    )
+    out = reward(
+        completions=[
+            _conv('<reasoning>x</reasoning>\n<answer>{"smiles": "CCO"}</answer>')
+        ],
+        answer=['[{"property": "carbon_atom_count", "operator": "=", "value": 2}]'],
+    )
+    assert out == [1.3]
+
+
+def test_constraint_diagnostics_include_target_signature_if_rdkit_available():
+    """Verify constraint diagnostics preserve target identity for reporting."""
+    try:
+        import rdkit  # noqa: F401
+    except ImportError:
+        return
+
+    diagnostics = moleculariq_diagnostics(
+        '<reasoning>x</reasoning>\n<answer>{"smiles": "CCC"}</answer>',
+        '[{"property": "carbon_atom_count", "operator": "=", "value": 3}]',
+        "constraint_generation",
+    )
+
+    assert diagnostics["constraint_target_signature"] == "carbon_atom_count=3"
+    assert diagnostics["constraint_target_property"] == "carbon_atom_count"
+    assert diagnostics["constraint_target_operator"] == "="
+    assert diagnostics["constraint_target_value"] == 3.0
+    assert diagnostics["constraint_actual_value"] == 3.0
+
+
 def test_moleculariq_diagnostics_reports_partial_score():
     """Verify diagnostic metrics expose parsing and partial score information."""
     completion = '<reasoning>x</reasoning>\n<answer>{"ring_count": 8}</answer>'
     out = moleculariq_diagnostics(completion, '{"ring_count": 10}', "single_count")
     assert out["answer_present"] is True
     assert out["json_valid"] is True
-    assert 0.8 < out["partial_score"] < 0.9
+    assert out["partial_score"] == 1 / 3
     # Exact-match verdict and partial credit come from the same verifier call.
     assert out["exact_match"] == 0.0
 

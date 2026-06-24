@@ -70,6 +70,10 @@ sbatch slurm/curriculum_from_sft.slurm
 sbatch slurm/strategies.slurm
 ```
 
+`sft_index_warmstart.slurm` evaluates the SFT checkpoint immediately and runs
+`grpo-check-index-gate`. The continuation job checks the same gate again, so a
+collapsed contiguous-range policy cannot silently enter Stages 2-4.
+
 `curriculum.slurm` uses the **A100-tuned** base config
 (`configs/multitask/miq_multitask_a100_train.yaml`): bigger batch, more
 generations, and no gradient checkpointing, so generation runs many completions
@@ -109,6 +113,9 @@ exact-match accuracy.
 
 ## Notes / gotchas
 
+- **Dataset cache fingerprints**: setup rebuilds all multitask datasets with
+  overwrite enabled. Training refuses stale manifests whose task/filter/sample
+  configuration differs from the current YAML.
 - **Offline mode**: jobs export `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`,
   `HF_DATASETS_OFFLINE=1`. If you see a download error, the model/dataset wasn't
   cached on the login node — re-run `setup_leonardo.sh`.

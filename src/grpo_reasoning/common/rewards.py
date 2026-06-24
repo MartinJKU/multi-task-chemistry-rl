@@ -6,6 +6,7 @@ from numbers import Number
 from typing import Callable
 
 from .prompts import extract_xml_answer
+from .smiles import smiles_atom_tokens
 
 # Strict R1-style format: exactly one <reasoning>...</reasoning>\n<answer>...</answer>,
 _FORMAT_PATTERN = re.compile(
@@ -27,8 +28,9 @@ _TARGET_UNIQUE_REASONING_TOKENS = 12
 # The index evals showed a high-recall/low-precision failure: answers such as
 # ``[0, 1, ..., 18]`` overlap many gold atoms but almost never exactly match.
 # These weights keep dense credit useful while making false positives expensive.
-_INDEX_FALSE_POSITIVE_PENALTY = 1.5
-_INDEX_FALSE_NEGATIVE_PENALTY = 0.5
+_INDEX_FALSE_POSITIVE_PENALTY = 3.0
+_INDEX_FALSE_NEGATIVE_PENALTY = 1.0
+_INDEX_CONTIGUOUS_SHORTCUT_MULTIPLIER = 0.1
 
 
 def _completion_text(completion) -> str:
@@ -134,6 +136,128 @@ def make_reasoning_quality_reward(weight: float = 0.5) -> Callable:
     return reasoning_quality_reward
 
 
+def _parse_reasoning_atom_map(reasoning: str) -> dict[int, str]:
+    """Parse ``Atom map: 0:C; 1:O; ...`` from a rationale."""
+    match = re.search(
+        r"Atom map:\s*(.*?)(?:\.\s+[A-Za-z_]+ selects|$)",
+        reasoning,
+        re.DOTALL,
+    )
+    if not match:
+        return {}
+    return {
+        int(index): token
+        for index, token in re.findall(r"(\d+):([A-Za-z*]{1,2})", match.group(1))
+    }
+
+
+def _index_reasoning_consistency_score(
+    completion_text: str,
+    smiles: str,
+) -> float:
+    """Score whether an index rationale actually executes the SMILES scan."""
+    extracted = extract_xml_answer(completion_text)
+    parsed = _parse_json(extracted) if extracted else None
+    if not isinstance(parsed, dict):
+        return 0.0
+
+    expected_atoms = smiles_atom_tokens(smiles or "")
+    if not expected_atoms:
+        return 0.0
+    reasoning = _reasoning_text(completion_text)
+    atom_map = _parse_reasoning_atom_map(reasoning)
+    correct_entries = sum(
+        atom_map.get(index) == token for index, token in enumerate(expected_atoms)
+    )
+    extra_entries = sum(index >= len(expected_atoms) for index in atom_map)
+    map_score = max(
+        0.0,
+        (correct_entries - extra_entries) / max(len(expected_atoms), len(atom_map), 1),
+    )
+
+    selection_ok = True
+    found_selection = False
+    for key, values in parsed.items():
+        if not isinstance(values, list):
+            selection_ok = False
+            break
+        match = re.search(
+            rf"{re.escape(str(key))}\s+selects exactly\s+(\[[^\]]*\])",
+            reasoning,
+        )
+        if not match:
+            selection_ok = False
+            break
+        try:
+            stated = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            selection_ok = False
+            break
+        found_selection = True
+        if stated != values or any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value >= len(expected_atoms)
+            for value in values
+        ):
+            selection_ok = False
+            break
+
+    selection_score = 1.0 if found_selection and selection_ok and map_score >= 0.8 else 0.0
+    return 0.7 * map_score + 0.3 * selection_score
+
+
+def make_moleculariq_index_reasoning_reward(
+    weight: float = 0.5,
+    task_type: str | None = None,
+) -> Callable:
+    """Reward molecule-specific atom maps consistent with index answers."""
+    fixed_task_type = task_type
+
+    def index_reasoning_reward(
+        completions,
+        task_type: list[str] | None = None,
+        smiles=None,
+        **_,
+    ) -> list[float]:
+        if smiles is None:
+            return [0.0] * len(completions)
+        if task_type is None:
+            if fixed_task_type is None:
+                return [0.0] * len(completions)
+            row_task_types = [fixed_task_type] * len(completions)
+        else:
+            row_task_types = (
+                list(task_type)
+                if isinstance(task_type, (list, tuple))
+                else [str(task_type)] * len(completions)
+            )
+        row_smiles = (
+            list(smiles)
+            if isinstance(smiles, (list, tuple))
+            else [str(smiles)] * len(completions)
+        )
+        scores = []
+        for completion, row_task_type, row_smiles_value in zip(
+            completions,
+            row_task_types,
+            row_smiles,
+        ):
+            if row_task_type not in {"single_index", "multi_index"}:
+                scores.append(0.0)
+                continue
+            score = _index_reasoning_consistency_score(
+                _completion_text(completion),
+                row_smiles_value,
+            )
+            scores.append(weight * score)
+        return scores
+
+    index_reasoning_reward.__name__ = "moleculariq_index_reasoning_reward"
+    return index_reasoning_reward
+
+
 def make_exact_match_reward(weight: float = 2.0) -> Callable:
     """Create an exact-match correctness reward.
 
@@ -228,15 +352,14 @@ def _as_number(value) -> float | None:
 
 
 def _numeric_closeness(predicted, target) -> float:
-    """Score numeric predictions with exact match or smooth distance-based credit."""
+    """Score numeric predictions with sharply distance-decaying credit."""
     pred = _as_number(predicted)
     gold = _as_number(target)
     if pred is None or gold is None:
         return 0.0
     if pred == gold:
         return 1.0
-    scale = max(abs(gold), 1.0)
-    return max(0.0, 1.0 / (1.0 + abs(pred - gold) / scale))
+    return 1.0 / (1.0 + abs(pred - gold))
 
 
 def _as_int_set(value) -> set[int] | None:
@@ -286,7 +409,14 @@ def _index_precision_biased_overlap(predicted, target) -> float:
     )
     if denom <= 0:
         return 0.0
-    return counts["tp"] / denom
+    score = counts["tp"] / denom
+    pred_set = _as_int_set(predicted) or set()
+    gold_set = _as_int_set(target) or set()
+    pred_contiguous = bool(pred_set) and max(pred_set) - min(pred_set) + 1 == len(pred_set)
+    gold_contiguous = bool(gold_set) and max(gold_set) - min(gold_set) + 1 == len(gold_set)
+    if pred_contiguous and not gold_contiguous and pred_set != gold_set:
+        score *= _INDEX_CONTIGUOUS_SHORTCUT_MULTIPLIER
+    return score
 
 
 def _verifier_report(
@@ -461,7 +591,7 @@ def _constraint_graded(report: dict) -> tuple[float, bool]:
     return sum(scores) / total, valid_smiles
 
 
-def _constraint_diagnostics(report: dict | None) -> dict[str, float | bool]:
+def _constraint_diagnostics(report: dict | None) -> dict[str, float | bool | str]:
     """Compute constraint satisfaction diagnostics beyond valid-SMILES rate."""
     if report is None:
         return {}
@@ -473,6 +603,11 @@ def _constraint_diagnostics(report: dict | None) -> dict[str, float | bool]:
     satisfied = 0
     ring_requested = False
     ringless_when_ring_requested = False
+    target_parts: list[str] = []
+    target_property: str | None = None
+    target_operator: str | None = None
+    target_value: float | None = None
+    actual_value: float | None = None
     for entry in details:
         if not isinstance(entry, dict):
             continue
@@ -483,24 +618,41 @@ def _constraint_diagnostics(report: dict | None) -> dict[str, float | bool]:
         constraint = entry.get("constraint") or {}
         if not isinstance(constraint, dict):
             continue
-        target_value = _as_number(constraint.get("value"))
-        actual_value = _as_number(entry.get("actual"))
+        prop = constraint.get("property")
+        op = str(constraint.get("operator", "="))
+        current_target = _as_number(constraint.get("value"))
+        current_actual = _as_number(entry.get("actual"))
+        if isinstance(prop, str) and current_target is not None:
+            target_parts.append(f"{prop}{op}{current_target:g}")
+            target_property = prop
+            target_operator = op
+            target_value = current_target
+            actual_value = current_actual
         if (
-            constraint.get("property") == "ring_count"
-            and target_value is not None
-            and target_value > 0
+            prop == "ring_count"
+            and current_target is not None
+            and current_target > 0
         ):
             ring_requested = True
-            if actual_value == 0:
+            if current_actual == 0:
                 ringless_when_ring_requested = True
 
-    return {
+    diagnostics: dict[str, float | bool | str] = {
         "constraint_satisfied_fraction": (
             float(satisfied / supported) if supported else 0.0
         ),
         "ring_requested": ring_requested,
         "ringless_when_ring_requested": ringless_when_ring_requested,
     }
+    if target_parts:
+        diagnostics["constraint_target_signature"] = ";".join(target_parts)
+    if len(target_parts) == 1:
+        diagnostics["constraint_target_property"] = target_property or ""
+        diagnostics["constraint_target_operator"] = target_operator or "="
+        diagnostics["constraint_target_value"] = float(target_value or 0.0)
+        if actual_value is not None:
+            diagnostics["constraint_actual_value"] = float(actual_value)
+    return diagnostics
 
 
 def _constraint_smiles_diagnostics(parsed_answer) -> dict[str, float | bool | str]:
@@ -604,6 +756,7 @@ def make_moleculariq_shaped_reward(
     task_type: str | None = None,
     weight: float = 1.0,
     smiles_validity_weight: float = 0.5,
+    smiles_nontrivial_weight: float = 0.0,
 ) -> Callable:
     """Create a MolecularIQ partial-credit reward.
 
@@ -611,6 +764,8 @@ def make_moleculariq_shaped_reward(
         task_type: Fixed task type for single-task runs. If None, read per-row task_type.
         weight: Maximum task-shaped partial-credit reward.
         smiles_validity_weight: Extra reward for valid generated SMILES.
+        smiles_nontrivial_weight: Extra reward for valid generated SMILES that are
+            not trivial acyclic alkanes.
 
     Returns:
         Reward function for count, index, and constraint-generation tasks.
@@ -636,8 +791,9 @@ def make_moleculariq_shaped_reward(
 
         scores: list[float] = []
         for completion, gold, row_task_type in zip(completions, answer, row_task_types):
+            completion_text = _completion_text(completion)
             report = _verifier_report(
-                _completion_text(completion),
+                completion_text,
                 gold,
                 row_task_type,
             )
@@ -645,6 +801,12 @@ def make_moleculariq_shaped_reward(
             reward = weight * score
             if row_task_type == "constraint_generation" and valid_smiles:
                 reward += smiles_validity_weight
+                if smiles_nontrivial_weight:
+                    extracted = extract_xml_answer(completion_text)
+                    parsed = _parse_json(extracted) if extracted else None
+                    diagnostics = _constraint_smiles_diagnostics(parsed)
+                    if diagnostics and not diagnostics.get("trivial_alkane", False):
+                        reward += smiles_nontrivial_weight
             scores.append(reward)
         return scores
 

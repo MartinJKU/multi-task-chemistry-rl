@@ -50,6 +50,7 @@ grpo-evaluate-multitask = "grpo_reasoning.multitask.cli:evaluate_multitask_main"
 grpo-curriculum = "grpo_reasoning.multitask.cli:curriculum_main"
 grpo-audit-moleculariq = "grpo_reasoning.multitask.cli:audit_moleculariq_main"
 grpo-report = "grpo_reasoning.multitask.cli:report_main"
+grpo-check-index-gate = "grpo_reasoning.multitask.gates:index_gate_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

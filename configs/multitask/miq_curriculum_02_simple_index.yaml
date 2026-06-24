@@ -61,6 +61,16 @@ tasks:
       max_smiles_length: 60
       max_answer_list_length: 6
 
+  - task_id: si_ring_nonempty
+    task_type: single_index
+    properties: [ring_index]
+    num_samples: 600
+    candidate_multiplier: 12
+    filters:
+      max_smiles_length: 60
+      max_answer_list_length: 6
+      require_nonempty_list: true
+
   - task_id: si_aromatic_ring
     task_type: single_index
     properties: [aromatic_ring_index]
@@ -69,6 +79,16 @@ tasks:
     filters:
       max_smiles_length: 60
       max_answer_list_length: 6
+
+  - task_id: si_aromatic_ring_nonempty
+    task_type: single_index
+    properties: [aromatic_ring_index]
+    num_samples: 600
+    candidate_multiplier: 12
+    filters:
+      max_smiles_length: 60
+      max_answer_list_length: 6
+      require_nonempty_list: true
 
   - task_id: si_carbon_atom
     task_type: single_index
@@ -87,3 +107,13 @@ tasks:
     filters:
       max_smiles_length: 60
       max_answer_list_length: 6
+
+  - task_id: si_hetero_atom_nonempty
+    task_type: single_index
+    properties: [hetero_atom_index]
+    num_samples: 600
+    candidate_multiplier: 12
+    filters:
+      max_smiles_length: 60
+      max_answer_list_length: 6
+      require_nonempty_list: true

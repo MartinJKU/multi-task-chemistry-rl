@@ -14,7 +14,7 @@ beta: 0.005
 num_generations: 4
 per_device_train_batch_size: 4
 gradient_accumulation_steps: 4
-max_prompt_length: 384
+max_prompt_length: 512
 max_completion_length: 384
 num_train_epochs: 1
 max_steps: -1
@@ -31,13 +31,14 @@ gradient_checkpointing: true
 optim: adamw_torch
 
 use_soft_format_reward: true
-# Reward substantive reasoning so GRPO cannot collapse to empty <reasoning> and
-# guessing -- the failure that starves index and wide-range count tasks.
-use_reasoning_quality_reward: true
-reasoning_quality_weight: 0.5
-correctness_weight: 2.0
+# Reward complete molecule-specific atom maps on index rows; generic prose gets
+# no standalone reward.
+use_reasoning_quality_reward: false
+use_index_reasoning_reward: true
+index_reasoning_weight: 0.5
+correctness_weight: 4.0
 use_shaped_moleculariq_reward: true
-shaped_moleculariq_weight: 1.0
+shaped_moleculariq_weight: 0.75
 smiles_validity_weight: 0.5
 resume_from_checkpoint:
 save_on_interrupt: true

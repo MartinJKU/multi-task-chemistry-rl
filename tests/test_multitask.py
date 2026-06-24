@@ -7,6 +7,8 @@ from grpo_reasoning.multitask.dataset import (
     MultitaskDatasetConfig,
     _largest_remainder_counts,
     _read_task_accuracies,
+    _dataset_config_fingerprint,
+    validate_saved_multitask_dataset,
 )
 
 
@@ -139,3 +141,44 @@ def test_read_task_accuracies_from_multitask_summary(tmp_path):
         "sc_ring_count": 0.8,
         "si_ring": 0.25,
     }
+
+
+def test_cached_dataset_manifest_rejects_stale_config(tmp_path):
+    cfg = MultitaskDatasetConfig.from_dict(
+        {
+            "out_dir": str(tmp_path),
+            "tasks": [
+                {
+                    "task_id": "si_ring",
+                    "task_type": "single_index",
+                    "properties": ["ring_index"],
+                    "num_samples": 100,
+                }
+            ],
+        }
+    )
+    (tmp_path / "multitask_manifest.json").write_text(
+        json.dumps({"config_fingerprint": _dataset_config_fingerprint(cfg)}),
+        encoding="utf-8",
+    )
+    validate_saved_multitask_dataset(tmp_path, cfg)
+
+    changed = MultitaskDatasetConfig.from_dict(
+        {
+            "out_dir": str(tmp_path),
+            "tasks": [
+                {
+                    "task_id": "si_ring",
+                    "task_type": "single_index",
+                    "properties": ["ring_index"],
+                    "num_samples": 200,
+                }
+            ],
+        }
+    )
+    try:
+        validate_saved_multitask_dataset(tmp_path, changed)
+    except ValueError as exc:
+        assert "--overwrite-datasets" in str(exc)
+    else:
+        raise AssertionError("Expected stale dataset validation to fail.")
