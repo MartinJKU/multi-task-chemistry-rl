@@ -77,17 +77,28 @@ cd "$PROJECT_ROOT"
 pip install -e . --no-deps
 
 # 5) Remaining runtime deps + chemistry verifier ------------------------------
-#    numpy<2.0 keeps RDKit/moleculariq-core binary-wheel compatible on RHEL 8.
-pip install datasets accelerate peft "numpy<2.0" matplotlib pyyaml tqdm
+pip install datasets accelerate peft matplotlib pyyaml tqdm
 pip install "moleculariq-core @ git+https://github.com/ml-jku/moleculariq-core.git"
+
+# 5b) Align NumPy with the MODERN stack. The legacy 0.5B venv pins numpy<2 for
+#     old RDKit wheels, but torch 2.7 / transformers 5.x are built against the
+#     NumPy 2.x ABI: with numpy<2 here, numpy cannot even import itself against
+#     these wheels and `import torch` dies with
+#       ImportError: cannot import name '_dtype_ctypes' from partially
+#       initialized module 'numpy.core' (circular import).
+#     Force a clean numpy 2.x LAST so nothing installed above can downgrade it.
+#     Modern RDKit (pulled by moleculariq-core) supports NumPy 2.x.
+pip install --force-reinstall --no-cache-dir "numpy>=2.1,<3"
 
 # 6) Sanity check: versions + that THIS stack can build the new architecture --
 pip check || echo "[qwen3-setup] pip check reported issues (often harmless across the modern stack)"
 QWEN3_MODEL="$QWEN3_MODEL" python - <<'PY'
 import os
-import torch, transformers, trl
+import numpy, torch, transformers, trl
+print(f"[qwen3-setup] numpy={numpy.__version__} (must be 2.x for the modern stack)")
 print(f"[qwen3-setup] torch={torch.__version__} cuda_build={torch.version.cuda}")
 print(f"[qwen3-setup] transformers={transformers.__version__} trl={trl.__version__}")
+assert int(numpy.__version__.split(".")[0]) >= 2, "numpy<2 breaks import torch on this stack"
 
 # Fail loudly here (on the login node, with internet) rather than inside a job if
 # the installed transformers still does not know the new architecture.
