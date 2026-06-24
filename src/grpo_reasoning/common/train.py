@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from pathlib import Path
 from typing import Any
 
 import torch
+import transformers
 from datasets import load_from_disk
 from transformers import AutoModelForCausalLM
 from trl import GRPOConfig, GRPOTrainer
@@ -20,6 +21,31 @@ from .rewards import (
     soft_format_reward,
 )
 from .utils import load_tokenizer, set_seed
+
+
+def _transformers_version() -> tuple[int, int]:
+    """Return the installed transformers (major, minor), best-effort.
+
+    Used to pick version-dependent kwargs so the same code runs on both the
+    legacy pinned stack (transformers 4.49) and the modern stack used for newer
+    model architectures (e.g. Qwen3.5) in a separate venv.
+    """
+    parts = transformers.__version__.split(".")
+    try:
+        return int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return (0, 0)
+
+
+def _from_pretrained_dtype_kwarg(dtype: "torch.dtype") -> dict[str, Any]:
+    """Choose the dtype kwarg name `from_pretrained` expects on this stack.
+
+    Transformers renamed `torch_dtype` to `dtype` in 4.56; older releases only
+    accept `torch_dtype`. On the legacy 4.49 venv this resolves to `torch_dtype`,
+    so 0.5B behavior is unchanged.
+    """
+    key = "dtype" if _transformers_version() >= (4, 56) else "torch_dtype"
+    return {key: dtype}
 
 
 @dataclass
@@ -143,6 +169,16 @@ def _build_training_args(cfg: TrainArgs) -> GRPOConfig:
         seed=cfg.seed,
     )
     base.update(cfg.grpo_overrides or {})
+
+    # GRPOConfig's field set changed across TRL versions. Drop any kwarg the
+    # installed GRPOConfig does not accept so the same code builds a valid config
+    # on both the legacy (trl 0.16) and modern (trl 1.x) stacks. On trl 0.16 all
+    # of the above are valid, so nothing is dropped and behavior is unchanged.
+    valid = {f.name for f in dataclass_fields(GRPOConfig)}
+    unknown = sorted(set(base) - valid)
+    if unknown:
+        print(f"[train] dropping GRPOConfig kwargs unsupported by installed trl: {unknown}")
+        base = {k: v for k, v in base.items() if k in valid}
     return GRPOConfig(**base)
 
 
@@ -233,7 +269,7 @@ def train(cfg: TrainArgs) -> str:
 
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model_name,
-        torch_dtype=torch.bfloat16 if cfg.bf16 else torch.float32,
+        **_from_pretrained_dtype_kwarg(torch.bfloat16 if cfg.bf16 else torch.float32),
     )
 
     training_args = _build_training_args(cfg)

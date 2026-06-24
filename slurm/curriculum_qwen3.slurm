@@ -27,8 +27,10 @@
 
 set -euo pipefail
 
+# Uses the MODERN stack venv built by slurm/setup_qwen3.sh (transformers/trl new
+# enough to load the qwen3_5 architecture), NOT the legacy 0.5B venv.
 export PROJECT_ROOT="${PROJECT_ROOT:-$WORK/grpo-reasoning}"
-export VENV_DIR="${VENV_DIR:-$WORK/venvs/grpo}"
+export VENV_DIR="${VENV_DIR:-$WORK/venvs/grpo-qwen3}"
 export HF_HOME="${HF_HOME:-$WORK/hf_cache}"
 PYTHON_MODULE="${PYTHON_MODULE:-python/3.11.6--gcc--8.5.0}"
 

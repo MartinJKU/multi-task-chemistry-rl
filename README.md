@@ -400,12 +400,22 @@ When you move to a larger Linux box with enough VRAM:
 
 ## Comparing against another base model (Qwen3.5-0.8B)
 
-To check whether a larger base model helps, there is a parallel set of configs
-that swaps `Qwen/Qwen2.5-0.5B-Instruct` for `Qwen/Qwen3.5-0.8B`. They reuse the
-same preprocessed (model-independent) datasets and write to `*-qwen3` output
-directories, so they run side by side with the 0.5B runs without clobbering
-anything. Only the base model and output directories differ — every reward and
-hyperparameter is identical, so the comparison is fair.
+To check whether a larger/newer base model helps, there is a parallel set of
+configs that swaps `Qwen/Qwen2.5-0.5B-Instruct` for `Qwen/Qwen3.5-0.8B`. They
+reuse the same preprocessed (model-independent) datasets and write to `*-qwen3`
+output directories, so they run side by side with the 0.5B runs without
+clobbering anything. The data, rewards, and hyperparameters are identical.
+
+> **Stack requirement.** `Qwen/Qwen3.5-0.8B` reports `model_type: qwen3_5`, which
+> the pinned stack (`transformers==4.49`, `trl==0.16`) cannot load. That pin is
+> load-bearing for the 0.5B GRPO trainer, so do **not** upgrade it in place —
+> instead run the Qwen3 configs from a **separate venv** with a modern
+> transformers/trl (the same separate-venv pattern used for vLLM). On Leonardo
+> that venv is built by `slurm/setup_qwen3.sh`; see
+> [`slurm/README.md`](slurm/README.md). The shared training code is version-robust
+> across both stacks, but because the trainer implementation differs between the
+> two TRL lines, this is a base-model comparison rather than a byte-identical one.
+> The `python scripts/...` commands below assume that modern venv is active.
 
 | Run | 0.5B config | Qwen3.5-0.8B config |
 |-----|-------------|---------------------|
@@ -450,9 +460,10 @@ so the report plots and CSVs will show both model sizes alongside each other.
 
 Two caveats worth knowing:
 
-- `Qwen/Qwen3.5-0.8B` is used verbatim as you requested; if the exact Hugging
-  Face repo id differs, change the `model_name` / `base_model` line in these
-  six configs (and pre-cache it in `slurm/setup_leonardo.sh` for offline nodes).
+- `Qwen/Qwen3.5-0.8B` is used verbatim; if the exact Hugging Face repo id
+  differs, change the `model_name` / `base_model` line in these six configs (and
+  set `QWEN3_MODEL=Qwen/<id>` when running `slurm/setup_qwen3.sh` so the right
+  weights are cached for offline nodes).
 - The adaptive run reuses the shared adaptive dataset by default. For a fully
   faithful adaptive comparison, rebuild that dataset from the Qwen3 balanced
   eval first — see the note at the top of

@@ -101,28 +101,37 @@ Outputs land in `outputs/` (checkpoints) and `outputs/multitask_eval/<label>/sum
 rise above ~0 — that's the real signal at 0.5B, since the heatmap only shows
 exact-match accuracy.
 
-## Running a second base model (Qwen3.5-0.8B) next to the 0.5B checkout
+## Running Qwen3.5-0.8B next to the 0.5B checkout (separate modern venv)
 
-You can compare `Qwen/Qwen3.5-0.8B` against the existing 0.5B runs **without a
-fresh setup**. The Qwen3 jobs reuse the same venv, the same `$WORK/hf_cache`,
-and the **same datasets** (datasets are model-independent), and they write to
-`*-qwen3` output directories so nothing the 0.5B runs produced is overwritten.
+You can compare `Qwen/Qwen3.5-0.8B` against the existing 0.5B runs. The Qwen3
+jobs reuse the same `$WORK/hf_cache` and the **same datasets** (datasets are
+model-independent) and write to `*-qwen3` output directories, so nothing the
+0.5B runs produced is overwritten.
 
-Only one extra thing has to happen on an internet-connected login node: caching
-the new model.
+The catch: Qwen3.5 reports `model_type: qwen3_5`, which the pinned legacy stack
+(`transformers==4.49`, `trl==0.16`) cannot load — and that pin is load-bearing
+for the 0.5B GRPO trainer, so we must **not** upgrade the main venv. Instead the
+Qwen3 runs use a **separate venv** with a modern transformers/trl, exactly the
+pattern `setup_vllm.sh` uses. The shared training code is version-robust (it
+filters `GRPOConfig` kwargs to what the installed trl accepts and picks the right
+`dtype`/`torch_dtype` kwarg), so the same `grpo-train`/`grpo-curriculum` commands
+run under either venv.
+
+One-time, on an internet-connected **login node**:
 
 ```bash
-# On a LOGIN node, in your existing checkout (pull the branch with the Qwen3 configs first)
 cd $WORK/grpo-reasoning
 git fetch origin claude/stoic-tesla-1hfhyu
 git checkout claude/stoic-tesla-1hfhyu      # or merge/cherry-pick the configs
 
-# Cache the Qwen3 base model into the shared HF cache (reuses your venv)
-bash slurm/cache_model_leonardo.sh          # defaults to Qwen/Qwen3.5-0.8B
+# Build $WORK/venvs/grpo-qwen3 (modern transformers+trl), verify the qwen3_5
+# arch is recognized, and pre-cache the model into the shared HF cache.
+bash slurm/setup_qwen3.sh
 ```
 
-Then submit the Qwen3 jobs exactly like the 0.5B ones — they're independent and
-can even queue at the same time:
+This does not touch your main `$WORK/venvs/grpo` venv or its results. Then submit
+the Qwen3 jobs — they default `VENV_DIR` to `$WORK/venvs/grpo-qwen3` and can queue
+alongside the 0.5B jobs:
 
 ```bash
 sbatch slurm/strategies_qwen3.slurm   # pooled/balanced/adaptive on Qwen3
@@ -133,11 +142,17 @@ Set the `#SBATCH --account=` line in those two files the same way as the others.
 `grpo-report` discovers every eval summary under `outputs/multitask_eval`, so the
 final report shows the 0.5B and Qwen3 runs side by side.
 
-Notes specific to the larger model:
+Notes specific to this larger / newer model:
 
-- If the **exact HF repo id differs** from `Qwen/Qwen3.5-0.8B`, pass the real one
-  to the cache step (`bash slurm/cache_model_leonardo.sh Qwen/<id>`) and update
-  the `model_name` / `base_model` line in the six `*qwen3*` configs.
+- **Expect to pin a version or two on the first `setup_qwen3.sh` run.**
+  transformers<->trl compatibility moves fast; the script installs the latest of
+  each by default. If `grpo-train` errors on a `GRPOConfig`/`GRPOTrainer` API
+  change, pin via `TRANSFORMERS_SPEC=... TRL_SPEC=... bash slurm/setup_qwen3.sh`.
+  The version-robust shims in `common/train.py` cover kwarg/dtype renames, not a
+  wholesale trainer-API rewrite.
+- If the **exact HF repo id differs** from `Qwen/Qwen3.5-0.8B`, set it once:
+  `QWEN3_MODEL=Qwen/<id> bash slurm/setup_qwen3.sh`, and update the `model_name` /
+  `base_model` line in the six `*qwen3*` configs.
 - `curriculum_qwen3.slurm` reuses the A100-tuned base config
   (`per_device_train_batch_size: 32`). The 0.8B model uses more memory than the
   0.5B one, so if you hit OOM drop that to 16 in
@@ -146,11 +161,16 @@ Notes specific to the larger model:
 - Smoke test first: edit the job to `--qos=boost_qos_dbg`, `--time=00:30:00`,
   and append `--max-steps-per-stage 20` to the `grpo-curriculum` line.
 
+> `slurm/cache_model_leonardo.sh` only works for models the *legacy* stack can
+> load (e.g. another Qwen2.5 checkpoint). It cannot cache `qwen3_5` — use
+> `setup_qwen3.sh` for that.
+
 ## Notes / gotchas
 
 - **Offline mode**: jobs export `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`,
   `HF_DATASETS_OFFLINE=1`. If you see a download error, the model/dataset wasn't
-  cached on the login node — re-run `setup_leonardo.sh`.
+  cached on the login node — re-run `setup_leonardo.sh` (or `setup_qwen3.sh` for
+  the Qwen3 venv/model).
 - **bitsandbytes / 8-bit optimizer**: NOT used on Leonardo. bitsandbytes 0.45.x
   ships a CUDA library linked against `GLIBC_2.34`, but the RHEL 8 nodes only
   provide glibc 2.28, so it cannot load and the 8-bit optimizer crashes at
