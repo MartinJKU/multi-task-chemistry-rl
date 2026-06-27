@@ -1,0 +1,64 @@
+# pass@k PROBE set for the transfer/generalization study (used by grpo-eval-passk).
+#
+# Test molecules come from the held-out tail of the pool (to_grpo_dataset splits
+# train=head / test=tail under a fixed seed), so eval molecules are disjoint from
+# training molecules even for in-distribution task types.
+#
+# Each task is probed with pass@k for base vs. the pooled transfer model:
+#   in-distribution  -> sc_ring_count, si_ring         (trained task types)
+#   held: composition -> mc_topology, mi_ring_aromatic (single -> multi)
+#   held: synthesis   -> cg_carbon_atom                (counting -> generation)
+#   held: new property-> sc_hba                        (hba_count never trained)
+#
+# out_dir is required by the config schema but unused for pass@k probing.
+out_dir: data/miq_transfer_probe_unused
+strategy: pooled
+split: test
+seed: 42
+shuffle: true
+
+tasks:
+  # --- in-distribution (trained task types) ---
+  - task_id: sc_ring_count
+    task_type: single_count
+    properties: [ring_count]
+    num_samples: 100
+
+  - task_id: si_ring
+    task_type: single_index
+    properties: [ring_index]
+    num_samples: 100
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
+  # --- held-out: compositional generalization (single-property -> multi) ---
+  - task_id: mc_topology
+    task_type: multi_count
+    properties: [ring_count, aromatic_ring_count, fused_ring_count]
+    num_samples: 100
+
+  - task_id: mi_ring_aromatic
+    task_type: multi_index
+    properties: [ring_index, aromatic_ring_index]
+    num_samples: 100
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
+  # --- held-out: analysis -> synthesis (learned to count -> generate to target) ---
+  - task_id: cg_carbon_atom
+    task_type: constraint_generation
+    properties: [carbon_atom_count]
+    num_samples: 100
+    candidate_multiplier: 4
+    filters:
+      max_answer_numeric_value: 12
+
+  # --- held-out: unseen property (counting skill -> a property never trained) ---
+  - task_id: sc_hba
+    task_type: single_count
+    properties: [hba_count]
+    num_samples: 100

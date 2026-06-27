@@ -167,6 +167,137 @@ def evaluate_multitask_main() -> None:
     _evaluate_model(args.model, label)
 
 
+def eval_passk_main() -> None:
+    """Estimate pass@k for one model on every task in a config.
+
+    Sampling-based pass@k separates *elicitation* from *expansion*: run this on
+    both training task types and held-out task types. Always evaluates the
+    untrained base model as a reference unless disabled. Point ``--config`` at a
+    task list that includes the held-out tasks to probe transfer.
+    """
+    p = argparse.ArgumentParser()
+    p.add_argument("--config", required=True, help="Multitask YAML listing tasks to probe.")
+    p.add_argument("--model", required=True)
+    p.add_argument("--model-label", default=None)
+    p.add_argument("--num-samples", type=int, default=100, help="Test items per task.")
+    p.add_argument("--n-completions", type=int, default=256)
+    p.add_argument(
+        "--k-values",
+        default="1,2,4,8,16,32,64,128,256",
+        help="Comma-separated k values to report.",
+    )
+    p.add_argument("--temperature", type=float, default=0.8)
+    p.add_argument("--top-p", type=float, default=0.95)
+    p.add_argument("--top-k", type=int, default=50)
+    p.add_argument("--prompt-batch-size", type=int, default=8)
+    p.add_argument("--samples-per-round", type=int, default=16)
+    p.add_argument("--max-new-tokens", type=int, default=512)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--out-dir", default="outputs/passk_eval")
+    p.add_argument("--only-tasks", default=None, help="Comma-separated task_ids to limit to.")
+    p.add_argument(
+        "--baseline-model",
+        default="Qwen/Qwen2.5-0.5B-Instruct",
+        help="Untrained reference model evaluated alongside the target model.",
+    )
+    p.add_argument("--baseline-label", default="base")
+    p.add_argument("--no-baseline", action="store_true")
+    p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Re-run pass@k even if a summary JSON already exists.",
+    )
+    args = p.parse_args()
+
+    import gc
+
+    import torch
+
+    from ..common.eval import evaluate_pass_at_k
+    from ..common.utils import load_yaml
+    from .dataset import MultitaskDatasetConfig
+
+    cfg = MultitaskDatasetConfig.from_dict(load_yaml(args.config))
+    k_values = [int(k) for k in args.k_values.split(",") if k.strip()]
+    only = (
+        {t.strip() for t in args.only_tasks.split(",") if t.strip()}
+        if args.only_tasks
+        else None
+    )
+    out_root = Path(args.out_dir)
+
+    def _eval_model(model_path: str, label: str) -> None:
+        out_dir = out_root / label
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for spec in cfg.tasks:
+            if only is not None and spec.task_id not in only:
+                continue
+            save_path = out_dir / f"{spec.task_id}_passk.json"
+            if save_path.exists() and not args.overwrite:
+                print(f"[passk] {label}:{spec.task_id} cached at {save_path}")
+                continue
+            print(f"\n=== pass@k {label}: {spec.task_id} ===")
+            evaluate_pass_at_k(
+                model_path=model_path,
+                task_name="moleculariq",
+                num_samples=args.num_samples,
+                n_completions=args.n_completions,
+                k_values=k_values,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                top_k=args.top_k,
+                prompt_batch_size=args.prompt_batch_size,
+                samples_per_round=args.samples_per_round,
+                max_new_tokens=args.max_new_tokens,
+                seed=args.seed,
+                save_path=save_path,
+                task_kwargs=spec.task_kwargs(default_seed=cfg.seed),
+                model_label=label,
+            )
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    if (
+        not args.no_baseline
+        and args.baseline_label != (args.model_label or "")
+        and Path(args.baseline_model) != Path(args.model)
+    ):
+        print(f"\n[passk] === base reference: {args.baseline_model} ===")
+        _eval_model(args.baseline_model, args.baseline_label)
+
+    label = args.model_label or Path(args.model).name.replace("/", "_")
+    _eval_model(args.model, label)
+
+
+def plot_passk_main() -> None:
+    """Plot pass@k crossover/transfer curves from saved summaries."""
+    p = argparse.ArgumentParser()
+    p.add_argument(
+        "--passk-dir",
+        default="outputs/passk_eval",
+        help="Directory searched recursively for *_passk.json summaries.",
+    )
+    p.add_argument("--out-dir", default="outputs/passk_report")
+    p.add_argument("--base-label", default="base")
+    p.add_argument("--stem", default="pass_at_k")
+    p.add_argument("--title", default="pass@k: elicitation vs. expansion")
+    args = p.parse_args()
+
+    from .passk_report import load_passk_summaries, plot_pass_at_k
+
+    paths = sorted(Path(args.passk_dir).rglob("*_passk.json"))
+    if not paths:
+        raise SystemExit(f"No *_passk.json found under {args.passk_dir}")
+    summaries = load_passk_summaries(paths)
+    plot_pass_at_k(
+        summaries,
+        out_dir=args.out_dir,
+        base_label=args.base_label,
+        stem=args.stem,
+        title=args.title,
+    )
+
 
 def curriculum_main() -> None:
     """Run staged curriculum training from a YAML config."""

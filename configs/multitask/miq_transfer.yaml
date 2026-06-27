@@ -1,0 +1,66 @@
+# Transfer/generalization study (H4 x H1).
+#
+# TRAINING task set for the pooled multitask GRPO model. Deliberately limited to
+# SINGLE-property COUNT and INDEX tasks so that several held-out task types probe
+# genuine compositional / cross-task generalization (see miq_transfer_probe.yaml):
+#
+#   * compose single -> multi : mc_topology, mi_ring_aromatic  (NOT trained)
+#   * analysis -> synthesis    : cg_ring_count, cg_carbon_atom  (NOT trained)
+#   * unseen property          : sc_hba (hba_count never trained)
+#
+# The three count properties below (ring/aromatic/fused) are exactly the
+# components of held-out mc_topology; ring+aromatic indices are the components of
+# held-out mi_ring_aromatic; ring/carbon counts are the targets of the held-out
+# constraint-generation tasks. This makes each held-out task a clean test of
+# "did the model learn a reusable primitive, or a per-task shortcut?".
+out_dir: data/miq_transfer_train
+strategy: pooled
+split: train
+seed: 42
+shuffle: true
+
+tasks:
+  # single_count components (also the parts of mc_topology + cg targets)
+  - task_id: sc_ring_count
+    task_type: single_count
+    properties: [ring_count]
+    num_samples: 2500
+
+  - task_id: sc_aromatic_ring
+    task_type: single_count
+    properties: [aromatic_ring_count]
+    num_samples: 2500
+
+  - task_id: sc_fused_ring
+    task_type: single_count
+    properties: [fused_ring_count]
+    num_samples: 2500
+
+  - task_id: sc_carbon_atom
+    task_type: single_count
+    properties: [carbon_atom_count]
+    num_samples: 2500
+
+  - task_id: sc_hetero_atom
+    task_type: single_count
+    properties: [hetero_atom_count]
+    num_samples: 2500
+
+  # single_index components (also the parts of mi_ring_aromatic)
+  - task_id: si_ring
+    task_type: single_index
+    properties: [ring_index]
+    num_samples: 2500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10
+
+  - task_id: si_aromatic_ring
+    task_type: single_index
+    properties: [aromatic_ring_index]
+    num_samples: 2500
+    candidate_multiplier: 6
+    filters:
+      max_smiles_length: 90
+      max_answer_list_length: 10

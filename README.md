@@ -86,6 +86,19 @@ wrappers shown below or through console commands:
 | `grpo-train` | shared |
 | `grpo-preprocess`, `grpo-evaluate`, `grpo-plot-training` | single-task |
 | `grpo-preprocess-multitask`, `grpo-evaluate-multitask`, `grpo-curriculum`, `grpo-audit-moleculariq`, `grpo-report` | multitask |
+| `grpo-eval-passk`, `grpo-plot-passk` | multitask (pass@k transfer study) |
+
+### pass@k transfer study (elicitation vs. expansion)
+
+`grpo-eval-passk` samples many completions per item, scores each with the
+official MolecularIQ verifier, and estimates pass@k for a range of k on both
+**trained** and **held-out** task types. Comparing a fine-tuned model's pass@k
+curve against the base model's separates *elicitation* (base catches up at large
+k) from *expansion* (the model stays ahead). `grpo-plot-passk` draws the faceted
+crossover figure and a per-task crossover CSV. The end-to-end study (train one
+pooled model, probe in-distribution + held-out tasks, plot) is wired up in
+`slurm/transfer_passk.slurm`; see `POSTER_PLAN.md` in the `moleculariq-thesis`
+repo for the full experimental design.
 
 If you OOM, reduce `max_completion_length` first, then `num_generations`, then
 `per_device_train_batch_size`.
