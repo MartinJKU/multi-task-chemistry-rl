@@ -1,0 +1,52 @@
+task_name: moleculariq
+# =============================================================================
+# H2 ablation -- DENSE (verifier-shaped) reward arm.
+#
+# This run is ALSO the H1 generalist (verifier-reward GRPO vs base model), so
+# H1 and H2 share this single checkpoint.
+#
+# H2 holds EVERYTHING fixed across the two arms except one flag:
+#   shaped arm  (this file): use_shaped_moleculariq_reward = true
+#   sparse arm           : use_shaped_moleculariq_reward = false
+# Both start from the SAME base init (not a warm-started checkpoint) so the only
+# explanation for any difference is the reward, not the initialization.
+#
+# Reward stack here: [soft_format(0.5), shaped(numeric/Jaccard/constraint +
+# valid-SMILES), format(1.0), exact-match(2.0)].
+# =============================================================================
+model_name: Qwen/Qwen2.5-0.5B-Instruct
+dataset_path: data/miq_multitask_balanced_train
+output_dir: outputs/miq-h2-shaped-grpo
+
+# Used only for legacy single-task MolecularIQ datasets. Mixed datasets dispatch
+# rewards per row using their task_type column.
+moleculariq_task_type: single_count
+
+learning_rate: 1.0e-5
+beta: 0.005
+num_generations: 4
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4
+max_prompt_length: 384
+max_completion_length: 384
+num_train_epochs: 1
+max_steps: 1500
+warmup_ratio: 0.1
+weight_decay: 0.1
+max_grad_norm: 0.1
+lr_scheduler_type: cosine
+
+seed: 42
+logging_steps: 1
+save_steps: 250
+bf16: true
+gradient_checkpointing: true
+optim: adamw_torch
+
+use_soft_format_reward: true
+correctness_weight: 2.0
+use_shaped_moleculariq_reward: true   # <-- the ONLY difference vs the sparse arm
+shaped_moleculariq_weight: 1.0
+smiles_validity_weight: 0.5
+resume_from_checkpoint:
+save_on_interrupt: true

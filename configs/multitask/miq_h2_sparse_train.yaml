@@ -1,0 +1,53 @@
+task_name: moleculariq
+# =============================================================================
+# H2 ablation -- SPARSE (exact-match only) reward arm.
+#
+# Identical to configs/multitask/miq_h2_shaped_train.yaml in EVERY field except
+# use_shaped_moleculariq_reward (false here). No dense partial credit: the only
+# task signal is the binary exact-match verdict.
+#
+# Reward stack here: [soft_format(0.5), format(1.0), exact-match(2.0)].
+#
+# Hypothesis: on hard set-valued tasks (single/multi index, constraint
+# generation) almost every sampled completion scores 0 exact-match, so each
+# GRPO group has ~zero within-group reward variance -> advantage ~ 0 -> no
+# gradient -> the sparse arm stalls near the base model. Counts (small discrete
+# target space) still get occasional exact-match hits, so the sparse arm should
+# improve there. The shaped arm should learn both.
+# =============================================================================
+model_name: Qwen/Qwen2.5-0.5B-Instruct
+dataset_path: data/miq_multitask_balanced_train
+output_dir: outputs/miq-h2-sparse-grpo
+
+# Used only for legacy single-task MolecularIQ datasets. Mixed datasets dispatch
+# rewards per row using their task_type column.
+moleculariq_task_type: single_count
+
+learning_rate: 1.0e-5
+beta: 0.005
+num_generations: 4
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4
+max_prompt_length: 384
+max_completion_length: 384
+num_train_epochs: 1
+max_steps: 1500
+warmup_ratio: 0.1
+weight_decay: 0.1
+max_grad_norm: 0.1
+lr_scheduler_type: cosine
+
+seed: 42
+logging_steps: 1
+save_steps: 250
+bf16: true
+gradient_checkpointing: true
+optim: adamw_torch
+
+use_soft_format_reward: true
+correctness_weight: 2.0
+use_shaped_moleculariq_reward: false  # <-- the ONLY difference vs the shaped arm
+shaped_moleculariq_weight: 1.0
+smiles_validity_weight: 0.5
+resume_from_checkpoint:
+save_on_interrupt: true
