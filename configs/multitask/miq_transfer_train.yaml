@@ -18,8 +18,12 @@ num_generations: 4
 per_device_train_batch_size: 4
 gradient_accumulation_steps: 4
 max_prompt_length: 384
-max_completion_length: 384
+# 256 is plenty for "<reasoning>...</reasoning>\n<answer>{json}</answer>" on these
+# short-answer tasks, and shorter completions make GRPO rollouts markedly faster.
+max_completion_length: 256
 num_train_epochs: 1
+# Capped by the SLURM wrapper via --max-steps so a usable model lands in hours,
+# not 15h. Frequent checkpoints below mean eval can run on a partial model.
 max_steps: -1
 warmup_ratio: 0.1
 weight_decay: 0.1
@@ -28,7 +32,7 @@ lr_scheduler_type: cosine
 
 seed: 42
 logging_steps: 1
-save_steps: 250
+save_steps: 100
 bf16: true
 gradient_checkpointing: true
 optim: adamw_torch
