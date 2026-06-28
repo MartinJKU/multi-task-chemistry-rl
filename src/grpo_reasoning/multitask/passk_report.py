@@ -163,12 +163,12 @@ def plot_pass_at_k(
                     ax.axvline(k_cross, color=line.get_color(), ls=":", alpha=0.5)
 
         ax.set_xscale("log", base=2)
-        ax.set_xlabel("k (log scale)")
-        ax.set_ylabel("pass@k")
+        ax.set_xlabel("k  =  attempts allowed per question  (log₂)")
+        ax.set_ylabel("pass@k  =  fraction solved within k tries")
         ax.set_ylim(0, 1)
         ax.set_title(task_label, fontsize=10)
         ax.grid(True, which="both", alpha=0.2)
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, title="model", loc="upper left")
 
     for ax_index in range(len(task_labels), nrows * ncols):
         axes[ax_index // ncols][ax_index % ncols].axis("off")
