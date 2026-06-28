@@ -132,6 +132,22 @@ def plot_pass_at_k(
             ax.fill_between(ks, low, high, alpha=0.15, color=line.get_color())
             if base is not None and summary is not base:
                 k_cross = find_crossover(base, summary)
+                shared = sorted(
+                    set(int(x) for x in base["pass_at_k"])
+                    & set(int(x) for x in summary["pass_at_k"])
+                )
+                kmin = shared[0] if shared else None
+                leads_early = (
+                    kmin is not None
+                    and summary["pass_at_k"][str(kmin)]["mean"]
+                    > base["pass_at_k"][str(kmin)]["mean"]
+                )
+                if k_cross is None:
+                    interpretation = "expansion (grpo above base at all k)"
+                elif leads_early:
+                    interpretation = f"elicitation (grpo leads early, base catches up by k={k_cross})"
+                else:
+                    interpretation = "regression (base >= grpo across all k)"
                 crossovers.append(
                     {
                         "task": task_label,
@@ -140,11 +156,7 @@ def plot_pass_at_k(
                         "pass_at_1_model": summary["pass_at_k"].get("1", {}).get("mean"),
                         "pass_at_1_base": base["pass_at_k"].get("1", {}).get("mean"),
                         "crossover_k": k_cross,
-                        "interpretation": (
-                            "elicitation (base catches up)"
-                            if k_cross is not None
-                            else "expansion (stays above base)"
-                        ),
+                        "interpretation": interpretation,
                     }
                 )
                 if k_cross is not None:
